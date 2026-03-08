@@ -104,6 +104,8 @@ class TestDatabaseOperations:
     def test_create_ticket_basic(self, plugin, mock_env):
         mock_ticket = Mock()
         mock_ticket.id = 123
+        mock_ticket.insert = Mock()
+        mock_ticket.__setitem__ = Mock()
 
         with patch("trac_cron_createticket.Ticket", return_value=mock_ticket):
             job = {
@@ -115,6 +117,7 @@ class TestDatabaseOperations:
                 "offset": 0,
             }
             plugin._create_ticket(job)
+            mock_ticket.insert.assert_called_once()
             mock_env.log.info.assert_called_once()
 
     @patch("trac_cron_createticket.Ticket")
@@ -122,6 +125,7 @@ class TestDatabaseOperations:
         mock_ticket = Mock()
         mock_ticket.id = 456
         mock_ticket.insert = Mock()
+        mock_ticket.__setitem__ = Mock()
         mock_ticket_class.return_value = mock_ticket
 
         job = {
@@ -133,6 +137,7 @@ class TestDatabaseOperations:
             "offset": 0,
         }
         plugin._create_ticket(job)
+        mock_ticket.insert.assert_called_once()
         mock_env.log.info.assert_called_once()
 
 

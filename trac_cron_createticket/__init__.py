@@ -146,20 +146,18 @@ class CronCreateTicketPlugin(Component):
         priority = self._expand_template(job["priority"], offset=offset)
 
         try:
-            with self.env.db_transaction:
-                ticket = Ticket(self.env)
-                values = {
-                    "summary": title,
-                    "reporter": "cron_create_ticket",
-                    "owner": owner,
-                    "description": description,
-                }
-                if component:
-                    values["component"] = component
-                if priority:
-                    values["priority"] = priority
+            ticket = Ticket(self.env)
+            ticket["summary"] = title
+            ticket["reporter"] = "cron_create_ticket"
+            ticket["owner"] = owner
+            ticket["description"] = description
+            if component:
+                ticket["component"] = component
+            if priority:
+                ticket["priority"] = priority
 
-                ticket.insert(values=values)
+            with self.env.db_transaction:
+                ticket.insert()
 
             self.env.log.info(f"Created ticket #{ticket.id}: {title}")
         except Exception as e:
