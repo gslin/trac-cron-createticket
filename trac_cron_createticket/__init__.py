@@ -276,7 +276,20 @@ class CronCreateTicketPlugin(Component):
                 "priority": self.env.config.get("trac_cron_createticket", f"{prefix}.priority", ""),
                 "offset": self.env.config.getint("trac_cron_createticket", f"{prefix}.offset", 0),
             }
-            jobs.append(job)
+            has_data = any(
+                [
+                    job["enabled"],
+                    job["frequency"],
+                    job["title"],
+                    job["owner"],
+                    job["description"],
+                    job["component"],
+                    job["priority"],
+                    job["offset"] != 0,
+                ]
+            )
+            if has_data:
+                jobs.append(job)
 
         data["jobs"] = jobs
         data["ticker_enabled"] = self.ticker_enabled
