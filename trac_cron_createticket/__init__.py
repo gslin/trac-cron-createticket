@@ -8,6 +8,8 @@ from croniter import croniter
 from trac.admin import IAdminPanelProvider
 from trac.config import BoolOption, IntOption
 from trac.core import Component, implements
+from trac.db import DatabaseManager
+from trac.env import IEnvironmentSetupParticipant
 from trac.perm import IPermissionPolicy, IPermissionRequestor
 from trac.ticket import Ticket
 from trac.util.html import html
@@ -17,6 +19,7 @@ from trac.web.chrome import INavigationContributor, ITemplateProvider
 
 class CronCreateTicketPlugin(Component):
     implements(
+        IEnvironmentSetupParticipant,
         INavigationContributor,
         IRequestHandler,
         ITemplateProvider,
@@ -164,6 +167,7 @@ class CronCreateTicketPlugin(Component):
             self.env.log.error(f"Failed to create ticket: {e}")
 
     def _run_scheduler(self):
+        self.env.log.info("CronCreateTicket scheduler started")
         while not self._stop_ticker:
             self._load_jobs()
             current_time = time()
@@ -171,24 +175,24 @@ class CronCreateTicketPlugin(Component):
             for job in self._jobs:
                 try:
                     cron = croniter(job["cron"], current_time)
-                    next_run = cron.get_next()
+                    next_run = cron.get_prev()
+                    if job["last_run"] == 0 or next_run > job["last_run"]:
+                        self.env.log.info(f"Creating ticket for job {job['name']}: {job['title']}")
+                        self._create_ticket(job)
+                        job["last_run"] = int(current_time)
 
-                    if next_run - current_time <= self.ticker_interval:
-                        if job["last_run"] == 0 or (current_time - job["last_run"]) >= (60 * 60):
-                            self._create_ticket(job)
-                            job["last_run"] = int(current_time)
-
-                            prefix = job["name"]
-                            self.env.config.set(
-                                "trac_cron_createticket",
-                                f"{prefix}.last_run",
-                                str(int(current_time)),
-                            )
-                            self.env.config.save()
+                        prefix = job["name"]
+                        self.env.config.set(
+                            "trac_cron_createticket",
+                            f"{prefix}.last_run",
+                            str(int(current_time)),
+                        )
+                        self.env.config.save()
                 except Exception as e:
                     self.env.log.error(f"Error processing job {job['name']}: {e}")
 
             sleep(self.ticker_interval)
+        self.env.log.info("CronCreateTicket scheduler stopped")
 
     def _start_ticker(self):
         if self._ticker_thread is None or not self._ticker_thread.is_alive():
@@ -212,6 +216,15 @@ class CronCreateTicketPlugin(Component):
 
     def _init_db(self):
         self._upgrade_db()
+
+    def environment_created(self):
+        self._init_db()
+
+    def environment_needs_upgrade(self, db):
+        return False
+
+    def upgrade_environment(self, db):
+        self._init_db()
 
     def initialize(self):
         self._init_db()
