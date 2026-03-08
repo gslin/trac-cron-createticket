@@ -9,6 +9,7 @@ readme = "README.md"
 
 # Dependencies
 dependencies = [
+    "setuptools<70",
     "Trac>=1.6",
     "croniter>=2.0.0",
 ]
@@ -23,6 +24,8 @@ build-backend = "setuptools.build_meta"
 # Development dependencies (e.g. linting, testing)
 dev = [
     "ruff>=0.6.0",
+    "pytest>=7.0.0",
+    "pytest-cov>=4.0.0",
 ]
 # uv specific settings can be left default
 
@@ -31,3 +34,8 @@ line-length = 120
 [tool.ruff.lint]
 select = ["E", "F", "W", "C90"]
 ignore = []
+
+[tool.pytest.ini_options]
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]

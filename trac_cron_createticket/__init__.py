@@ -145,22 +145,21 @@ class CronCreateTicketPlugin(Component):
         component = self._expand_template(job["component"], offset=offset)
         priority = self._expand_template(job["priority"], offset=offset)
 
-        db = self.env.get_db_cnx()
         try:
-            ticket = Ticket(self.env, db=db)
-            values = {
-                "summary": title,
-                "reporter": "cron_create_ticket",
-                "owner": owner,
-                "description": description,
-            }
-            if component:
-                values["component"] = component
-            if priority:
-                values["priority"] = priority
+            with self.env.db_transaction:
+                ticket = Ticket(self.env)
+                values = {
+                    "summary": title,
+                    "reporter": "cron_create_ticket",
+                    "owner": owner,
+                    "description": description,
+                }
+                if component:
+                    values["component"] = component
+                if priority:
+                    values["priority"] = priority
 
-            ticket.insert(values=values)
-            db.commit()
+                ticket.insert(values=values)
 
             self.env.log.info(f"Created ticket #{ticket.id}: {title}")
         except Exception as e:
@@ -291,14 +290,14 @@ class CronCreateTicketPlugin(Component):
         return "admin_cron_createticket.html", data
 
     def _get_components(self):
-        db = self.env.get_db_cnx()
-        with db.cursor() as cursor:
+        with self.env.db_query as db:
+            cursor = db.cursor()
             cursor.execute("SELECT name FROM component ORDER BY name")
             return [row[0] for row in cursor.fetchall()]
 
     def _get_priorities(self):
-        db = self.env.get_db_cnx()
-        with db.cursor() as cursor:
+        with self.env.db_query as db:
+            cursor = db.cursor()
             cursor.execute("SELECT name FROM enum WHERE type='priority' ORDER BY value")
             return [row[0] for row in cursor.fetchall()]
 
