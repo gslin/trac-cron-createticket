@@ -220,10 +220,10 @@ class CronCreateTicketPlugin(Component):
     def environment_created(self):
         self._init_db()
 
-    def environment_needs_upgrade(self, db):
+    def environment_needs_upgrade(self, db=None):
         return False
 
-    def upgrade_environment(self, db):
+    def upgrade_environment(self, db=None):
         self._init_db()
 
     def initialize(self):
