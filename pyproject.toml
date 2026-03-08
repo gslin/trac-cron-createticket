@@ -18,6 +18,12 @@ requires = ["setuptools", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [tool.uv]
+
+[project.optional-dependencies]
+# Development dependencies (e.g. linting, testing)
+dev = [
+    "ruff>=0.6.0",
+]
 # uv specific settings can be left default
 
 [tool.ruff]

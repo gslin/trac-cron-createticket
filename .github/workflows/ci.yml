@@ -36,7 +36,7 @@ jobs:
 
       - name: Install dependencies (uv sync)
         run: |
-          uv sync
+           uv sync --dev
 
       - name: Run linter (make lint)
         run: |
