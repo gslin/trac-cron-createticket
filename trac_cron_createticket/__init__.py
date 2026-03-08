@@ -465,11 +465,14 @@ class CronCreateTicketPlugin(Component):
             action = req.args.get("action")
             if action == "save_jobs":
                 self._save_jobs_from_form(req)
+                req.redirect(req.href.admin(cat, page))
             elif action == "create_job":
                 self._create_job_from_form(req)
+                req.redirect(req.href.admin(cat, page))
             elif action and action.startswith("delete_job_"):
                 job_index = int(action.split("_")[-1])
                 self._delete_job(job_index)
+                req.redirect(req.href.admin(cat, page))
         return self._render_admin_page(req)
 
     def get_templates_dirs(self):
