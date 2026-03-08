@@ -376,7 +376,10 @@ class CronCreateTicketPlugin(Component):
         return self._render_admin_page(req)
 
     def get_templates_dirs(self):
-        return [__import__("trac_cron_createticket", fromlist=["templates"]).__path__[0] + "/templates"]
+        from trac_cron_createticket import __file__ as module_path
+        import os
+
+        return [os.path.join(os.path.dirname(module_path), "templates")]
 
     def get_htdocs_dirs(self):
         return []
