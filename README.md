@@ -1,4 +1,4 @@
-# TracCronCreateTicket Plugin ![CI](https://github.com/USERNAME/trac-cron-createticket/actions/workflows/ci.yml/badge.svg)
+# TracCronCreateTicket Plugin ![CI](https://github.com/gslin/trac-cron-createticket/actions/workflows/ci.yml/badge.svg)
 
 ## Introduction
 
