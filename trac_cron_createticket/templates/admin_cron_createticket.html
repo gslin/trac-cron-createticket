@@ -19,14 +19,14 @@ ${_("Cron Create Ticket")}
       <legend>Scheduler Settings</legend>
       <div class="field">
         <label>
-          <input type="checkbox" name="ticker_enabled" {% if ticker_enabled %}checked{% endif %}{% if not ticker_enabled or true %}{% endif %}/>
+          <input type="checkbox" name="ticker_enabled"${{'checked': ticker_enabled, 'empty': 'empty'}|htmlattr}/>
           Enable Scheduler
         </label>
         <p class="hint">Enable automatic ticket creation based on schedule</p>
       </div>
       <div class="field">
         <label>Interval (seconds):
-          <input type="text" name="ticker_interval" value="{{ ticker_interval }}" size="5"/>
+          <input type="text" name="ticker_interval" value="${ticker_interval}" size="5"/>
         </label>
         <p class="hint">How often the scheduler checks for jobs to run</p>
       </div>
@@ -48,56 +48,54 @@ ${_("Cron Create Ticket")}
           </tr>
         </thead>
         <tbody>
-          {% for job in jobs %}
+          # for job in jobs:
           <tr>
-            <td>{{ job.index }}</td>
+            <td>${job.index}</td>
             <td>
-              <input type="checkbox" name="enabled_{{ job.index }}" {% if job.enabled %}checked{% endif %}{% if not job.enabled or true %}{% endif %}/>
+              <input type="checkbox" name="enabled_${job.index}"${{'checked': job.enabled, 'empty': 'empty'}|htmlattr}/>
             </td>
             <td>
-              <select name="frequency_{{ job.index }}" id="frequency_{{ job.index }}">
+              <select name="frequency_${job.index}" id="frequency_${job.index}">
                 <option value="">-- Select --</option>
-                {% for preset in presets %}
-                <option value="{{ preset[0] }}" {% if job.frequency == preset[0] %}selected{% endif %}{% if job.frequency != preset[0] %}{% endif %}>{{ preset[1] }}</option>
-                {% endfor %}
-                <option value="custom" {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}selected{% endif %}{% if not (job.frequency and job.frequency not in presets|map(attribute='0')|list) %}{% endif %}>Custom (cron)</option>
+                # for preset in presets:
+                <option value="${preset[0]}"${{'selected': job.frequency == preset[0], 'empty': 'empty'}|htmlattr}>${preset[1]}</option>
+                # endfor
+                # set is_custom = job.frequency and job.frequency not in presets|map(attribute='0')
+                <option value="custom"${{'selected': is_custom, 'empty': 'empty'}|htmlattr}>Custom (cron)</option>
               </select>
-              {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}
-              <input type="text" name="frequency_{{ job.index }}" value="{{ job.frequency }}" size="15" placeholder="* * * * *"/>
-              <input type="hidden" name="frequency_custom_{{ job.index }}" value="{{ job.frequency }}"/>
-              {% else %}
-              <input type="hidden" name="frequency_custom_{{ job.index }}" value=""/>
-              {% endif %}
+              # if is_custom:
+              <input type="text" name="frequency_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
+              # endif
             </td>
             <td>
-              <input type="text" name="title_{{ job.index }}" value="{{ job.title }}" size="30"
+              <input type="text" name="title_${job.index}" value="${job.title}" size="30"
                      placeholder="[now] Ticket for [today]"/>
             </td>
             <td>
-              <input type="text" name="owner_{{ job.index }}" value="{{ job.owner }}" size="15"/>
+              <input type="text" name="owner_${job.index}" value="${job.owner}" size="15"/>
             </td>
             <td>
-              <select name="component_{{ job.index }}">
+              <select name="component_${job.index}">
                 <option value="">-- None --</option>
-                {% for comp in components %}
-                <option value="{{ comp }}" {% if job.component == comp %}selected{% endif %}{% if job.component != comp %}{% endif %}>{{ comp }}</option>
-                {% endfor %}
+                # for comp in components:
+                <option value="${comp}"${{'selected': job.component == comp, 'empty': 'empty'}|htmlattr}>${comp}</option>
+                # endfor
               </select>
             </td>
             <td>
-              <select name="priority_{{ job.index }}">
+              <select name="priority_${job.index}">
                 <option value="">-- Default --</option>
-                {% for pri in priorities %}
-                <option value="{{ pri }}" {% if job.priority == pri %}selected{% endif %}{% if job.priority != pri %}{% endif %}>{{ pri }}</option>
-                {% endfor %}
+                # for pri in priorities:
+                <option value="${pri}"${{'selected': job.priority == pri, 'empty': 'empty'}|htmlattr}>${pri}</option>
+                # endfor
               </select>
             </td>
             <td>
-              <input type="text" name="offset_{{ job.index }}" value="{{ job.offset }}" size="8"
+              <input type="text" name="offset_${job.index}" value="${job.offset}" size="8"
                      placeholder="0"/>
             </td>
           </tr>
-          {% endfor %}
+          # endfor
         </tbody>
       </table>
     </fieldset>
@@ -148,9 +146,9 @@ ${_("Cron Create Ticket")}
         <td>
           <select name="test_component">
             <option value="">-- None --</option>
-            {% for comp in components %}
-            <option value="{{ comp }}">{{ comp }}</option>
-            {% endfor %}
+            # for comp in components:
+            <option value="${comp}">${comp}</option>
+            # endfor
           </select>
         </td>
       </tr>
@@ -159,9 +157,9 @@ ${_("Cron Create Ticket")}
         <td>
           <select name="test_priority">
             <option value="">-- Default --</option>
-            {% for pri in priorities %}
-            <option value="{{ pri }}">{{ pri }}</option>
-            {% endfor %}
+            # for pri in priorities:
+            <option value="${pri}">${pri}</option>
+            # endfor
           </select>
         </td>
       </tr>
