@@ -1,6 +1,6 @@
 # GNUmakefile for TracCronCreateTicket plugin
 
-.PHONY: test lint
+.PHONY: test lint clean
 
 # Run tests (if any). Uses uv to execute pytest.
 # If no tests are present, the command will simply report that.
@@ -13,3 +13,8 @@ test:
 lint:
 	@echo "Running ruff linter..."
 	@uv run ruff check .
+
+# Clean generated artefacts
+clean:
+	@echo "Cleaning project artefacts..."
+	@rm -rf __pycache__ .ruff_cache .mypy_cache .pytest_cache .coverage *.egg-info build dist
