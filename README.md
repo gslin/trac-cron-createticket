@@ -1,4 +1,4 @@
-# TracCronCreateTicket Plugin ![GitHub Actions CI](https://img.shields.io/github/actions/workflow/status/USERNAME/trac-cron-createticket/ci.yml?label=CI&logo=github-actions)
+# TracCronCreateTicket Plugin ![CI](https://github.com/USERNAME/trac-cron-createticket/actions/workflows/ci.yml/badge.svg)
 
 ## Introduction
 
