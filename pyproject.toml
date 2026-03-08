@@ -1,0 +1,26 @@
+[project]
+name = "trac-cron-createticket"
+version = "1.0.0"
+description = "Trac plugin for scheduled ticket creation"
+requires-python = ">=3.8"
+license = {text = "BSD"}
+authors = [{name = "Your Name", email = "your@email.com"}]
+readme = "README.md"
+
+# Dependencies
+dependencies = [
+    "Trac>=1.6",
+    "croniter>=2.0.0",
+]
+
+[build-system]
+requires = ["setuptools", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.uv]
+# uv specific settings can be left default
+
+[tool.ruff]
+line-length = 120
+select = ["E", "F", "W", "C90"]
+ignore = []
