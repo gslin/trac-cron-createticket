@@ -321,10 +321,13 @@ class CronCreateTicketPlugin(Component):
                 f"{prefix}.enabled",
                 str(bool(req.args.get(f"enabled_{i}"))).lower(),
             )
+            frequency = req.args.get(f"frequency_{i}", "")
+            if frequency == "custom":
+                frequency = req.args.get(f"frequency_custom_{i}", "")
             self.env.config.set(
                 "trac_cron_createticket",
                 f"{prefix}.frequency",
-                req.args.get(f"frequency_{i}", ""),
+                frequency,
             )
             self.env.config.set(
                 "trac_cron_createticket",

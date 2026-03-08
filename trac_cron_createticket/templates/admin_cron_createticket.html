@@ -65,7 +65,7 @@ ${_("Cron Create Ticket")}
                 <option value="custom"${{'selected': is_custom, 'empty': 'empty'}|htmlattr}>Custom (cron)</option>
               </select>
               # if is_custom:
-              <input type="text" name="frequency_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
+              <input type="text" name="frequency_custom_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
               # endif
             </td>
             <td>
@@ -204,7 +204,7 @@ ${ super() }
 jQuery(function($) {
   $('select[id^="frequency_"]').on('change', function() {
     var index = $(this).attr('id').replace('frequency_', '');
-    var customInput = $('input[name="frequency_' + index + '"]');
+    var customInput = $('input[name="frequency_custom_' + index + '"]');
     if ($(this).val() === 'custom') {
       customInput.show();
     } else {
