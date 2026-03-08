@@ -371,6 +371,84 @@ class CronCreateTicketPlugin(Component):
         }
         self._create_ticket(job)
 
+    def _create_job_from_form(self, req):
+        frequency = req.args.get("new_frequency")
+        if frequency == "custom":
+            frequency = req.args.get("new_frequency_custom", "")
+
+        title = req.args.get("new_title", "")
+        owner = req.args.get("new_owner", "")
+        description = req.args.get("new_description", "")
+        component = req.args.get("new_component", "")
+        priority = req.args.get("new_priority", "")
+        offset = int(req.args.get("new_offset", "0"))
+        enabled = bool(req.args.get("new_enabled"))
+
+        if not title:
+            return
+
+        max_jobs = 10
+        for i in range(1, max_jobs + 1):
+            prefix = f"job{i}"
+            existing_title = self.env.config.get("trac_cron_createticket", f"{prefix}.title", "")
+            if not existing_title:
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.enabled",
+                    str(enabled).lower(),
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.frequency",
+                    frequency,
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.title",
+                    title,
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.owner",
+                    owner,
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.description",
+                    description,
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.component",
+                    component,
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.priority",
+                    priority,
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
+                    f"{prefix}.offset",
+                    str(offset),
+                )
+                self.env.config.save()
+                self._load_jobs()
+                return
+
+    def _delete_job(self, job_index):
+        prefix = f"job{job_index}"
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.enabled")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.frequency")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.title")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.owner")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.description")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.component")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.priority")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.offset")
+        self.env.config.save()
+        self._load_jobs()
+
     def get_admin_panels(self, req):
         yield (
             "trac_cron_createticket",
@@ -384,8 +462,11 @@ class CronCreateTicketPlugin(Component):
             action = req.args.get("action")
             if action == "save_jobs":
                 self._save_jobs_from_form(req)
-            elif action == "test_create":
-                self._test_create_ticket(req)
+            elif action == "create_job":
+                self._create_job_from_form(req)
+            elif action and action.startswith("delete_job_"):
+                job_index = int(action.split("_")[-1])
+                self._delete_job(job_index)
         return self._render_admin_page(req)
 
     def get_templates_dirs(self):

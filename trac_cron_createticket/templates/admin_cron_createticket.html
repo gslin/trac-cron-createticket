@@ -45,6 +45,7 @@ ${_("Cron Create Ticket")}
             <th>Component</th>
             <th>Priority</th>
             <th>Offset (seconds)</th>
+            <th>Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -94,6 +95,9 @@ ${_("Cron Create Ticket")}
               <input type="text" name="offset_${job.index}" value="${job.offset}" size="8"
                      placeholder="0"/>
             </td>
+            <td>
+              <button type="submit" name="action" value="delete_job_${job.index}">Delete</button>
+            </td>
           </tr>
           # endfor
         </tbody>
@@ -125,26 +129,45 @@ ${_("Cron Create Ticket")}
   <h2>Creation</h2>
   <form class="mod" method="post">
     ${jmacros.form_token_input()}
-    <input type="hidden" name="action" value="test_create"/>
+    <input type="hidden" name="action" value="create_job"/>
     <table class="table">
       <tr>
+        <td><label>Enabled:</label></td>
+        <td>
+          <input type="checkbox" name="new_enabled"/>
+        </td>
+      </tr>
+      <tr>
+        <td><label>Frequency:</label></td>
+        <td>
+          <select name="new_frequency" id="new_frequency">
+            <option value="">-- Select --</option>
+            # for preset in presets:
+            <option value="${preset[0]}">${preset[1]}</option>
+            # endfor
+            <option value="custom">Custom (cron)</option>
+          </select>
+          <input type="text" name="new_frequency_custom" value="" size="15" placeholder="* * * * *" style="display: none;"/>
+        </td>
+      </tr>
+      <tr>
         <td><label>Title:</label></td>
-        <td><input type="text" name="test_title" value="Test Ticket [today]" size="50"/></td>
+        <td><input type="text" name="new_title" value="" size="50" placeholder="[now] Ticket for [today]"/></td>
       </tr>
       <tr>
         <td><label>Owner:</label></td>
-        <td><input type="text" name="test_owner" value="admin" size="20"/></td>
+        <td><input type="text" name="new_owner" value="" size="20"/></td>
       </tr>
       <tr>
         <td><label>Description:</label></td>
         <td>
-          <textarea name="test_description" rows="3" cols="50" class="trac-resizable">This is a test ticket created at [now]</textarea>
+          <textarea name="new_description" rows="3" cols="50" class="trac-resizable"></textarea>
         </td>
       </tr>
       <tr>
         <td><label>Component:</label></td>
         <td>
-          <select name="test_component">
+          <select name="new_component">
             <option value="">-- None --</option>
             # for comp in components:
             <option value="${comp}">${comp}</option>
@@ -155,7 +178,7 @@ ${_("Cron Create Ticket")}
       <tr>
         <td><label>Priority:</label></td>
         <td>
-          <select name="test_priority">
+          <select name="new_priority">
             <option value="">-- Default --</option>
             # for pri in priorities:
             <option value="${pri}">${pri}</option>
@@ -163,9 +186,13 @@ ${_("Cron Create Ticket")}
           </select>
         </td>
       </tr>
+      <tr>
+        <td><label>Offset (seconds):</label></td>
+        <td><input type="text" name="new_offset" value="0" size="8"/></td>
+      </tr>
     </table>
     <div class="buttons">
-      <input type="submit" value="${_('Create Ticket')}"/>
+      <input type="submit" value="${_('Create Job')}"/>
     </div>
   </form>
 </div>
@@ -184,8 +211,17 @@ jQuery(function($) {
       customInput.hide();
     }
   });
-  // Hide custom inputs on load
   $('select[id^="frequency_"]').trigger('change');
+  
+  $('#new_frequency').on('change', function() {
+    var customInput = $('input[name="new_frequency_custom"]');
+    if ($(this).val() === 'custom') {
+      customInput.show();
+    } else {
+      customInput.hide();
+    }
+  });
+  $('#new_frequency').trigger('change');
 });
 </script>
 # endblock head
