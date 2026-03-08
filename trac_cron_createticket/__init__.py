@@ -205,6 +205,12 @@ class CronCreateTicketPlugin(Component):
         if self._ticker_thread:
             self._ticker_thread.join(timeout=5)
 
+    def _ensure_ticker_state(self):
+        if self.ticker_enabled:
+            self._start_ticker()
+        else:
+            self._stop_ticker_thread()
+
     def _get_db_schema(self):
         return {"version": 1, "tables": {}}
 
@@ -238,6 +244,7 @@ class CronCreateTicketPlugin(Component):
         return "trac_cron_createticket"
 
     def get_navigation_items(self, req):
+        self._ensure_ticker_state()
         yield (
             "mainnav",
             "trac_cron_createticket",
@@ -474,6 +481,7 @@ class CronCreateTicketPlugin(Component):
         )
 
     def render_admin_panel(self, req, cat, page, path_info):
+        self._ensure_ticker_state()
         if req.method == "POST":
             action = req.args.get("action")
             if action == "save_jobs":
