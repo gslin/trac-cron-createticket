@@ -2,7 +2,7 @@
 name = "trac-cron-createticket"
 version = "1.0.0"
 description = "Trac plugin for scheduled ticket creation"
-requires-python = ">=3.8"
+requires-python = ">=3.8,<3.13"
 license = {text = "BSD"}
 authors = [{name = "Your Name", email = "your@email.com"}]
 readme = "README.md"
@@ -37,5 +37,10 @@ ignore = []
 
 [tool.pytest.ini_options]
 filterwarnings = [
-    "ignore::DeprecationWarning",
+    # Ignore deprecation warnings from Trac framework itself
+    "ignore::DeprecationWarning:trac",
+    # But keep warnings from our own code
+    "default::DeprecationWarning:trac_cron_createticket",
 ]
+
+
