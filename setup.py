@@ -8,6 +8,10 @@ setup(
     author_email="your@email.com",
     url="https://github.com/yourname/trac-cron-createticket",
     packages=find_packages(),
+    package_data={
+        "trac_cron_createticket": ["templates/*.html"],
+    },
+    include_package_data=True,
     entry_points={
         "trac.plugins": [
             "trac_cron_createticket = trac_cron_createticket",
