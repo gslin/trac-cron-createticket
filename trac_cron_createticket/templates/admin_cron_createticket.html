@@ -1,28 +1,34 @@
-<!DOCTYPE html>
-<html xmlns="http://www.w3.org/1999/xhtml">
-<head>
-  <title>Cron Create Ticket - Administration</title>
-</head>
-<body>
-  <h1>Cron Create Ticket Plugin</h1>
+{# Copyright (C) 2024
 
-  <form method="post">
+  This software is licensed as described in the file COPYING, which
+  you should have received as part of this distribution.
+#}
+# extends 'admin.html'
+
+# block admintitle
+${_("Cron Create Ticket")}
+# endblock admintitle
+
+# block adminpanel
+<div class="plugin">
+  <form class="mod" id="modcroncreateticket" method="post">
+    ${jmacros.form_token_input()}
     <input type="hidden" name="action" value="save_jobs"/>
 
     <fieldset>
       <legend>Scheduler Settings</legend>
       <div class="field">
         <label>
-          <input type="checkbox" name="ticker_enabled" {% if ticker_enabled %}checked{% endif %}/>
+          <input type="checkbox" name="ticker_enabled" {% if ticker_enabled %}checked{% endif %}{% if not ticker_enabled or true %}{% endif %}/>
           Enable Scheduler
         </label>
-        <span class="hint">Enable automatic ticket creation based on schedule</span>
+        <p class="hint">Enable automatic ticket creation based on schedule</p>
       </div>
       <div class="field">
         <label>Interval (seconds):
           <input type="text" name="ticker_interval" value="{{ ticker_interval }}" size="5"/>
         </label>
-        <span class="hint">How often the scheduler checks for jobs to run</span>
+        <p class="hint">How often the scheduler checks for jobs to run</p>
       </div>
     </fieldset>
 
@@ -46,18 +52,21 @@
           <tr>
             <td>{{ job.index }}</td>
             <td>
-              <input type="checkbox" name="enabled_{{ job.index }}" {% if job.enabled %}checked{% endif %}/>
+              <input type="checkbox" name="enabled_{{ job.index }}" {% if job.enabled %}checked{% endif %}{% if not job.enabled or true %}{% endif %}/>
             </td>
             <td>
-              <select name="frequency_{{ job.index }}" onchange="toggleCustomFreq(this, {{ job.index }})">
+              <select name="frequency_{{ job.index }}" id="frequency_{{ job.index }}">
                 <option value="">-- Select --</option>
                 {% for preset in presets %}
-                <option value="{{ preset[0] }}" {% if job.frequency == preset[0] %}selected{% endif %}>{{ preset[1] }}</option>
+                <option value="{{ preset[0] }}" {% if job.frequency == preset[0] %}selected{% endif %}{% if job.frequency != preset[0] %}{% endif %}>{{ preset[1] }}</option>
                 {% endfor %}
-                <option value="custom" {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}selected{% endif %}>Custom (cron)</option>
+                <option value="custom" {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}selected{% endif %}{% if not (job.frequency and job.frequency not in presets|map(attribute='0')|list) %}{% endif %}>Custom (cron)</option>
               </select>
               {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}
               <input type="text" name="frequency_{{ job.index }}" value="{{ job.frequency }}" size="15" placeholder="* * * * *"/>
+              <input type="hidden" name="frequency_custom_{{ job.index }}" value="{{ job.frequency }}"/>
+              {% else %}
+              <input type="hidden" name="frequency_custom_{{ job.index }}" value=""/>
               {% endif %}
             </td>
             <td>
@@ -71,7 +80,7 @@
               <select name="component_{{ job.index }}">
                 <option value="">-- None --</option>
                 {% for comp in components %}
-                <option value="{{ comp }}" {% if job.component == comp %}selected{% endif %}>{{ comp }}</option>
+                <option value="{{ comp }}" {% if job.component == comp %}selected{% endif %}{% if job.component != comp %}{% endif %}>{{ comp }}</option>
                 {% endfor %}
               </select>
             </td>
@@ -79,7 +88,7 @@
               <select name="priority_{{ job.index }}">
                 <option value="">-- Default --</option>
                 {% for pri in priorities %}
-                <option value="{{ pri }}" {% if job.priority == pri %}selected{% endif %}>{{ pri }}</option>
+                <option value="{{ pri }}" {% if job.priority == pri %}selected{% endif %}{% if job.priority != pri %}{% endif %}>{{ pri }}</option>
                 {% endfor %}
               </select>
             </td>
@@ -109,16 +118,17 @@
     </fieldset>
 
     <div class="buttons">
-      <input type="submit" value="Save Configuration"/>
+      <input type="submit" value="${_('Save Configuration')}"/>
     </div>
   </form>
 
   <hr/>
 
   <h2>Test Ticket Creation</h2>
-  <form method="post">
+  <form class="mod" method="post">
+    ${jmacros.form_token_input()}
     <input type="hidden" name="action" value="test_create"/>
-    <table>
+    <table class="table">
       <tr>
         <td><label>Title:</label></td>
         <td><input type="text" name="test_title" value="Test Ticket [today]" size="50"/></td>
@@ -129,7 +139,9 @@
       </tr>
       <tr>
         <td><label>Description:</label></td>
-        <td><textarea name="test_description" rows="3" cols="50">This is a test ticket created at [now]</textarea></td>
+        <td>
+          <textarea name="test_description" rows="3" cols="50" class="trac-resizable">This is a test ticket created at [now]</textarea>
+        </td>
       </tr>
       <tr>
         <td><label>Component:</label></td>
@@ -155,17 +167,27 @@
       </tr>
     </table>
     <div class="buttons">
-      <input type="submit" value="Create Test Ticket"/>
+      <input type="submit" value="${_('Create Test Ticket')}"/>
     </div>
   </form>
+</div>
+# endblock adminpanel
 
-  <script>
-    function toggleCustomFreq(select, index) {
-      const customInput = document.querySelector(`input[name="frequency_${index}"]`);
-      if (customInput) {
-        customInput.style.display = select.value === 'custom' ? 'inline' : 'none';
-      }
+# block head
+${ super() }
+<script>
+jQuery(function($) {
+  $('select[id^="frequency_"]').on('change', function() {
+    var index = $(this).attr('id').replace('frequency_', '');
+    var customInput = $('input[name="frequency_' + index + '"]');
+    if ($(this).val() === 'custom') {
+      customInput.show();
+    } else {
+      customInput.hide();
     }
-  </script>
-</body>
-</html>
+  });
+  // Hide custom inputs on load
+  $('select[id^="frequency_"]').trigger('change');
+});
+</script>
+# endblock head
