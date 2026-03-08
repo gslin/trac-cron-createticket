@@ -1,168 +1,171 @@
-<!DOCTYPE html
-    PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
-    "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
-<html xmlns="http://www.w3.org/1999/xhtml"
-      xmlns:py="http://genshi.edgewall.org/"
-      xmlns:xi="http://www.w3.org/2001/XInclude">
-  <xi:include href="layout.html" />
-  <xi:include href="macros.html" />
-  <head>
-    <title>Cron Create Ticket - Administration</title>
-  </head>
-  <body>
-    <h1>Cron Create Ticket Plugin</h1>
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml">
+<head>
+  <title>Cron Create Ticket - Administration</title>
+</head>
+<body>
+  <h1>Cron Create Ticket Plugin</h1>
 
-    <form method="post">
-      <input type="hidden" name="action" value="save_jobs"/>
+  <form method="post">
+    <input type="hidden" name="action" value="save_jobs"/>
 
-      <fieldset>
-        <legend>Scheduler Settings</legend>
-        <div class="field">
-          <label>
-            <input type="checkbox" name="ticker_enabled" ${'checked' if ticker_enabled else ''}/>
-            Enable Scheduler
-          </label>
-          <span class="hint">Enable automatic ticket creation based on schedule</span>
-        </div>
-        <div class="field">
-          <label>Interval (seconds):
-            <input type="text" name="ticker_interval" value="${ticker_interval}" size="5"/>
-          </label>
-          <span class="hint">How often the scheduler checks for jobs to run</span>
-        </div>
-      </fieldset>
-
-      <fieldset>
-        <legend>Scheduled Jobs</legend>
-        <table class="listing" id="jobs_table">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Enabled</th>
-              <th>Frequency</th>
-              <th>Title</th>
-              <th>Owner</th>
-              <th>Component</th>
-              <th>Priority</th>
-              <th>Offset (seconds)</th>
-            </tr>
-          </thead>
-          <tbody>
-            <py:for each="job in jobs">
-              <tr>
-                <td>${job.index}</td>
-                <td>
-                  <input type="checkbox" name="enabled_${job.index}" ${'checked' if job.enabled else ''}/>
-                </td>
-                <td>
-                  <select name="frequency_${job.index}">
-                    <option value="">-- Select --</option>
-                    <py:for each="preset in presets">
-                      <option value="${preset[0]}" ${'selected' if job.frequency == preset[0] else ''}>${preset[1]}</option>
-                    </py:for>
-                    <option value="custom" ${'selected' if job.frequency and job.frequency not in [p[0] for p in presets] else ''}>Custom (cron)</option>
-                  </select>
-                  <py:if test="job.frequency and job.frequency not in [p[0] for p in presets]">
-                    <input type="text" name="frequency_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
-                  </py:if>
-                </td>
-                <td>
-                  <input type="text" name="title_${job.index}" value="${job.title}" size="30"
-                         placeholder="[now] Ticket for [today]"/>
-                </td>
-                <td>
-                  <input type="text" name="owner_${job.index}" value="${job.owner}" size="15"/>
-                </td>
-                <td>
-                  <select name="component_${job.index}">
-                    <option value="">-- None --</option>
-                    <py:for each="comp in components">
-                      <option value="${comp}" ${'selected' if job.component == comp else ''}>${comp}</option>
-                    </py:for>
-                  </select>
-                </td>
-                <td>
-                  <select name="priority_${job.index}">
-                    <option value="">-- Default --</option>
-                    <py:for each="pri in priorities">
-                      <option value="${pri}" ${'selected' if job.priority == pri else ''}>${pri}</option>
-                    </py:for>
-                  </select>
-                </td>
-                <td>
-                  <input type="text" name="offset_${job.index}" value="${job.offset}" size="8"
-                         placeholder="0"/>
-                </td>
-              </tr>
-            </py:for>
-          </tbody>
-        </table>
-      </fieldset>
-
-      <fieldset>
-        <legend>Template Variables</legend>
-        <div class="help">
-          <p>You can use the following placeholders in title, owner, description, and component:</p>
-          <ul>
-            <li><code>[now]</code> - Current datetime</li>
-            <li><code>[now_unix]</code> - Current Unix timestamp</li>
-            <li><code>[today]</code> - Today's date (YYYY-MM-DD)</li>
-            <li><code>[tomorrow]</code> - Tomorrow's date (YYYY-MM-DD)</li>
-            <li><code>[yesterday]</code> - Yesterday's date (YYYY-MM-DD)</li>
-            <li><code>[offset:N]</code> - Date N seconds from now (e.g., [offset:86400] for tomorrow)</li>
-          </ul>
-        </div>
-      </fieldset>
-
-      <div class="buttons">
-        <input type="submit" value="Save Configuration"/>
+    <fieldset>
+      <legend>Scheduler Settings</legend>
+      <div class="field">
+        <label>
+          <input type="checkbox" name="ticker_enabled" {% if ticker_enabled %}checked{% endif %}/>
+          Enable Scheduler
+        </label>
+        <span class="hint">Enable automatic ticket creation based on schedule</span>
       </div>
-    </form>
+      <div class="field">
+        <label>Interval (seconds):
+          <input type="text" name="ticker_interval" value="{{ ticker_interval }}" size="5"/>
+        </label>
+        <span class="hint">How often the scheduler checks for jobs to run</span>
+      </div>
+    </fieldset>
 
-    <hr/>
-
-    <h2>Test Ticket Creation</h2>
-    <form method="post">
-      <input type="hidden" name="action" value="test_create"/>
-      <table>
-        <tr>
-          <td><label>Title:</label></td>
-          <td><input type="text" name="test_title" value="Test Ticket [today]" size="50"/></td>
-        </tr>
-        <tr>
-          <td><label>Owner:</label></td>
-          <td><input type="text" name="test_owner" value="admin" size="20"/></td>
-        </tr>
-        <tr>
-          <td><label>Description:</label></td>
-          <td><textarea name="test_description" rows="3" cols="50">This is a test ticket created at [now]</textarea></td>
-        </tr>
-        <tr>
-          <td><label>Component:</label></td>
-          <td>
-            <select name="test_component">
-              <option value="">-- None --</option>
-              <py:for each="comp in components">
-                <option value="${comp}">${comp}</option>
-              </py:for>
-            </select>
-          </td>
-        </tr>
-        <tr>
-          <td><label>Priority:</label></td>
-          <td>
-            <select name="test_priority">
-              <option value="">-- Default --</option>
-              <py:for each="pri in priorities">
-                <option value="${pri}">${pri}</option>
-              </py:for>
-            </select>
-          </td>
-        </tr>
+    <fieldset>
+      <legend>Scheduled Jobs</legend>
+      <table class="listing" id="jobs_table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>Enabled</th>
+            <th>Frequency</th>
+            <th>Title</th>
+            <th>Owner</th>
+            <th>Component</th>
+            <th>Priority</th>
+            <th>Offset (seconds)</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for job in jobs %}
+          <tr>
+            <td>{{ job.index }}</td>
+            <td>
+              <input type="checkbox" name="enabled_{{ job.index }}" {% if job.enabled %}checked{% endif %}/>
+            </td>
+            <td>
+              <select name="frequency_{{ job.index }}" onchange="toggleCustomFreq(this, {{ job.index }})">
+                <option value="">-- Select --</option>
+                {% for preset in presets %}
+                <option value="{{ preset[0] }}" {% if job.frequency == preset[0] %}selected{% endif %}>{{ preset[1] }}</option>
+                {% endfor %}
+                <option value="custom" {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}selected{% endif %}>Custom (cron)</option>
+              </select>
+              {% if job.frequency and job.frequency not in presets|map(attribute='0')|list %}
+              <input type="text" name="frequency_{{ job.index }}" value="{{ job.frequency }}" size="15" placeholder="* * * * *"/>
+              {% endif %}
+            </td>
+            <td>
+              <input type="text" name="title_{{ job.index }}" value="{{ job.title }}" size="30"
+                     placeholder="[now] Ticket for [today]"/>
+            </td>
+            <td>
+              <input type="text" name="owner_{{ job.index }}" value="{{ job.owner }}" size="15"/>
+            </td>
+            <td>
+              <select name="component_{{ job.index }}">
+                <option value="">-- None --</option>
+                {% for comp in components %}
+                <option value="{{ comp }}" {% if job.component == comp %}selected{% endif %}>{{ comp }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <select name="priority_{{ job.index }}">
+                <option value="">-- Default --</option>
+                {% for pri in priorities %}
+                <option value="{{ pri }}" {% if job.priority == pri %}selected{% endif %}>{{ pri }}</option>
+                {% endfor %}
+              </select>
+            </td>
+            <td>
+              <input type="text" name="offset_{{ job.index }}" value="{{ job.offset }}" size="8"
+                     placeholder="0"/>
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
       </table>
-      <div class="buttons">
-        <input type="submit" value="Create Test Ticket"/>
+    </fieldset>
+
+    <fieldset>
+      <legend>Template Variables</legend>
+      <div class="help">
+        <p>You can use the following placeholders in title, owner, description, and component:</p>
+        <ul>
+          <li><code>[now]</code> - Current datetime</li>
+          <li><code>[now_unix]</code> - Current Unix timestamp</li>
+          <li><code>[today]</code> - Today's date (YYYY-MM-DD)</li>
+          <li><code>[tomorrow]</code> - Tomorrow's date (YYYY-MM-DD)</li>
+          <li><code>[yesterday]</code> - Yesterday's date (YYYY-MM-DD)</li>
+          <li><code>[offset:N]</code> - Date N seconds from now (e.g., [offset:86400] for tomorrow)</li>
+        </ul>
       </div>
-    </form>
-  </body>
+    </fieldset>
+
+    <div class="buttons">
+      <input type="submit" value="Save Configuration"/>
+    </div>
+  </form>
+
+  <hr/>
+
+  <h2>Test Ticket Creation</h2>
+  <form method="post">
+    <input type="hidden" name="action" value="test_create"/>
+    <table>
+      <tr>
+        <td><label>Title:</label></td>
+        <td><input type="text" name="test_title" value="Test Ticket [today]" size="50"/></td>
+      </tr>
+      <tr>
+        <td><label>Owner:</label></td>
+        <td><input type="text" name="test_owner" value="admin" size="20"/></td>
+      </tr>
+      <tr>
+        <td><label>Description:</label></td>
+        <td><textarea name="test_description" rows="3" cols="50">This is a test ticket created at [now]</textarea></td>
+      </tr>
+      <tr>
+        <td><label>Component:</label></td>
+        <td>
+          <select name="test_component">
+            <option value="">-- None --</option>
+            {% for comp in components %}
+            <option value="{{ comp }}">{{ comp }}</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+      <tr>
+        <td><label>Priority:</label></td>
+        <td>
+          <select name="test_priority">
+            <option value="">-- Default --</option>
+            {% for pri in priorities %}
+            <option value="{{ pri }}">{{ pri }}</option>
+            {% endfor %}
+          </select>
+        </td>
+      </tr>
+    </table>
+    <div class="buttons">
+      <input type="submit" value="Create Test Ticket"/>
+    </div>
+  </form>
+
+  <script>
+    function toggleCustomFreq(select, index) {
+      const customInput = document.querySelector(`input[name="frequency_${index}"]`);
+      if (customInput) {
+        customInput.style.display = select.value === 'custom' ? 'inline' : 'none';
+      }
+    }
+  </script>
+</body>
 </html>

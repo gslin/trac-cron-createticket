@@ -14,6 +14,7 @@ setup(
         ],
     },
     install_requires=[
+        "setuptools<70",
         "Trac>=1.6",
         "croniter>=2.0.0",
     ],
