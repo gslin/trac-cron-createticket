@@ -1,17 +1,15 @@
 import re
 from datetime import datetime, timedelta
 from threading import Thread
-from time import mktime, sleep, time
+from time import sleep, time
 
 from croniter import croniter
 
 from trac.admin import IAdminPanelProvider
-from trac.config import BoolOption, IntOption, ListOption
+from trac.config import BoolOption, IntOption
 from trac.core import Component, implements
-from trac.db import DatabaseManager
 from trac.perm import IPermissionPolicy, IPermissionRequestor
 from trac.ticket import Ticket
-from trac.ticket.model import Component as ComponentModel, Priority
 from trac.util.html import html
 from trac.web import IRequestHandler
 from trac.web.chrome import INavigationContributor, ITemplateProvider
@@ -59,33 +57,21 @@ class CronCreateTicketPlugin(Component):
         jobs = []
         for i in range(1, 100):
             prefix = f"job{i}"
-            enabled = self.env.config.getbool(
-                "trac_cron_createticket", f"{prefix}.enabled", False
-            )
+            enabled = self.env.config.getbool("trac_cron_createticket", f"{prefix}.enabled", False)
             if not enabled:
                 continue
 
-            frequency = self.env.config.get(
-                "trac_cron_createticket", f"{prefix}.frequency", ""
-            )
+            frequency = self.env.config.get("trac_cron_createticket", f"{prefix}.frequency", "")
             cron_expr = self._get_cron_expression(frequency)
             if not cron_expr:
                 continue
 
             title = self.env.config.get("trac_cron_createticket", f"{prefix}.title", "")
             owner = self.env.config.get("trac_cron_createticket", f"{prefix}.owner", "")
-            description = self.env.config.get(
-                "trac_cron_createticket", f"{prefix}.description", ""
-            )
-            component = self.env.config.get(
-                "trac_cron_createticket", f"{prefix}.component", ""
-            )
-            priority = self.env.config.get(
-                "trac_cron_createticket", f"{prefix}.priority", ""
-            )
-            offset = self.env.config.getint(
-                "trac_cron_createticket", f"{prefix}.offset", 0
-            )
+            description = self.env.config.get("trac_cron_createticket", f"{prefix}.description", "")
+            component = self.env.config.get("trac_cron_createticket", f"{prefix}.component", "")
+            priority = self.env.config.get("trac_cron_createticket", f"{prefix}.priority", "")
+            offset = self.env.config.getint("trac_cron_createticket", f"{prefix}.offset", 0)
 
             jobs.append(
                 {
@@ -97,9 +83,7 @@ class CronCreateTicketPlugin(Component):
                     "component": component,
                     "priority": priority,
                     "offset": offset,
-                    "last_run": self.env.config.getint(
-                        "trac_cron_createticket", f"{prefix}.last_run", 0
-                    ),
+                    "last_run": self.env.config.getint("trac_cron_createticket", f"{prefix}.last_run", 0),
                 }
             )
 
@@ -163,21 +147,20 @@ class CronCreateTicketPlugin(Component):
 
         db = self.env.get_db_cnx()
         try:
-            with db.cursor() as cursor:
-                ticket = Ticket(self.env, db=db)
-                values = {
-                    "summary": title,
-                    "reporter": "cron_create_ticket",
-                    "owner": owner,
-                    "description": description,
-                }
-                if component:
-                    values["component"] = component
-                if priority:
-                    values["priority"] = priority
+            ticket = Ticket(self.env, db=db)
+            values = {
+                "summary": title,
+                "reporter": "cron_create_ticket",
+                "owner": owner,
+                "description": description,
+            }
+            if component:
+                values["component"] = component
+            if priority:
+                values["priority"] = priority
 
-                ticket.insert(values=values)
-                db.commit()
+            ticket.insert(values=values)
+            db.commit()
 
             self.env.log.info(f"Created ticket #{ticket.id}: {title}")
         except Exception as e:
@@ -194,9 +177,7 @@ class CronCreateTicketPlugin(Component):
                     next_run = cron.get_next()
 
                     if next_run - current_time <= self.ticker_interval:
-                        if job["last_run"] == 0 or (current_time - job["last_run"]) >= (
-                            60 * 60
-                        ):
+                        if job["last_run"] == 0 or (current_time - job["last_run"]) >= (60 * 60):
                             self._create_ticket(job)
                             job["last_run"] = int(current_time)
 
@@ -250,9 +231,7 @@ class CronCreateTicketPlugin(Component):
         yield (
             "mainnav",
             "trac_cron_createticket",
-            html.a(
-                "Cron Create Ticket", href=self.env.href.admin("trac_cron_createticket")
-            ),
+            html.a("Cron Create Ticket", href=self.env.href.admin("trac_cron_createticket")),
         )
 
     def get_permission_actions(self):
@@ -267,9 +246,7 @@ class CronCreateTicketPlugin(Component):
                 if perm.has_permission("TRAC_ADMIN"):
                     return True
             if action == "TRAC_CRON_CREATE_TICKET_VIEW":
-                if perm.has_permission("TRAC_ADMIN") or perm.has_permission(
-                    "TICKET_VIEW"
-                ):
+                if perm.has_permission("TRAC_ADMIN") or perm.has_permission("TICKET_VIEW"):
                     return True
         return None
 
@@ -293,30 +270,14 @@ class CronCreateTicketPlugin(Component):
             prefix = f"job{i}"
             job = {
                 "index": i,
-                "enabled": self.env.config.getbool(
-                    "trac_cron_createticket", f"{prefix}.enabled", False
-                ),
-                "frequency": self.env.config.get(
-                    "trac_cron_createticket", f"{prefix}.frequency", ""
-                ),
-                "title": self.env.config.get(
-                    "trac_cron_createticket", f"{prefix}.title", ""
-                ),
-                "owner": self.env.config.get(
-                    "trac_cron_createticket", f"{prefix}.owner", ""
-                ),
-                "description": self.env.config.get(
-                    "trac_cron_createticket", f"{prefix}.description", ""
-                ),
-                "component": self.env.config.get(
-                    "trac_cron_createticket", f"{prefix}.component", ""
-                ),
-                "priority": self.env.config.get(
-                    "trac_cron_createticket", f"{prefix}.priority", ""
-                ),
-                "offset": self.env.config.getint(
-                    "trac_cron_createticket", f"{prefix}.offset", 0
-                ),
+                "enabled": self.env.config.getbool("trac_cron_createticket", f"{prefix}.enabled", False),
+                "frequency": self.env.config.get("trac_cron_createticket", f"{prefix}.frequency", ""),
+                "title": self.env.config.get("trac_cron_createticket", f"{prefix}.title", ""),
+                "owner": self.env.config.get("trac_cron_createticket", f"{prefix}.owner", ""),
+                "description": self.env.config.get("trac_cron_createticket", f"{prefix}.description", ""),
+                "component": self.env.config.get("trac_cron_createticket", f"{prefix}.component", ""),
+                "priority": self.env.config.get("trac_cron_createticket", f"{prefix}.priority", ""),
+                "offset": self.env.config.getint("trac_cron_createticket", f"{prefix}.offset", 0),
             }
             jobs.append(job)
 
@@ -418,10 +379,7 @@ class CronCreateTicketPlugin(Component):
         return self._render_admin_page(req)
 
     def get_templates_dirs(self):
-        return [
-            __import__("trac_cron_createticket", fromlist=["templates"]).__path__[0]
-            + "/templates"
-        ]
+        return [__import__("trac_cron_createticket", fromlist=["templates"]).__path__[0] + "/templates"]
 
     def get_htdocs_dirs(self):
         return []
