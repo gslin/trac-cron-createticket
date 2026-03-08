@@ -74,6 +74,7 @@ class CronCreateTicketPlugin(Component):
             description = self.env.config.get("trac_cron_createticket", f"{prefix}.description", "")
             component = self.env.config.get("trac_cron_createticket", f"{prefix}.component", "")
             priority = self.env.config.get("trac_cron_createticket", f"{prefix}.priority", "")
+            status = self.env.config.get("trac_cron_createticket", f"{prefix}.status", "new")
             offset = self.env.config.getint("trac_cron_createticket", f"{prefix}.offset", 0)
 
             jobs.append(
@@ -85,6 +86,7 @@ class CronCreateTicketPlugin(Component):
                     "description": description,
                     "component": component,
                     "priority": priority,
+                    "status": status,
                     "offset": offset,
                     "last_run": self.env.config.getint("trac_cron_createticket", f"{prefix}.last_run", 0),
                 }
@@ -147,6 +149,7 @@ class CronCreateTicketPlugin(Component):
         description = self._expand_template(job["description"], offset=offset)
         component = self._expand_template(job["component"], offset=offset)
         priority = self._expand_template(job["priority"], offset=offset)
+        status = job.get("status", "new") or "new"
 
         try:
             ticket = Ticket(self.env)
@@ -158,6 +161,7 @@ class CronCreateTicketPlugin(Component):
                 ticket["component"] = component
             if priority:
                 ticket["priority"] = priority
+            ticket["status"] = status
 
             with self.env.db_transaction:
                 ticket.insert()
@@ -376,6 +380,11 @@ class CronCreateTicketPlugin(Component):
             )
             self.env.config.set(
                 "trac_cron_createticket",
+                f"{prefix}.status",
+                req.args.get(f"status_{i}", "new") or "new",
+            )
+            self.env.config.set(
+                "trac_cron_createticket",
                 f"{prefix}.offset",
                 req.args.get(f"offset_{i}", "0"),
             )
@@ -452,6 +461,11 @@ class CronCreateTicketPlugin(Component):
                 )
                 self.env.config.set(
                     "trac_cron_createticket",
+                    f"{prefix}.status",
+                    "new",
+                )
+                self.env.config.set(
+                    "trac_cron_createticket",
                     f"{prefix}.offset",
                     str(offset),
                 )
@@ -468,6 +482,7 @@ class CronCreateTicketPlugin(Component):
         self.env.config.remove("trac_cron_createticket", f"{prefix}.description")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.component")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.priority")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.status")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.offset")
         self.env.config.save()
         self._load_jobs()
