@@ -8,7 +8,6 @@ from croniter import croniter
 from trac.admin import IAdminPanelProvider
 from trac.config import BoolOption, IntOption
 from trac.core import Component, implements
-from trac.db import DatabaseManager
 from trac.env import IEnvironmentSetupParticipant
 from trac.perm import IPermissionPolicy, IPermissionRequestor
 from trac.ticket import Ticket
