@@ -32,6 +32,8 @@ def plugin(mock_env):
     plugin = CronCreateTicketPlugin.__new__(CronCreateTicketPlugin)
     plugin.env = mock_env
     plugin._jobs = []
+    plugin._stop_ticker = False
+    plugin._ticker_thread = None
     return plugin
 
 
@@ -116,7 +118,7 @@ class TestDatabaseOperations:
                 "priority": "",
                 "offset": 0,
             }
-            plugin._create_ticket(job)
+            assert plugin._create_ticket(job) is True
             mock_ticket.insert.assert_called_once()
             mock_env.log.info.assert_called_once()
 
@@ -136,9 +138,22 @@ class TestDatabaseOperations:
             "priority": "High",
             "offset": 0,
         }
-        plugin._create_ticket(job)
+        assert plugin._create_ticket(job) is True
         mock_ticket.insert.assert_called_once()
         mock_env.log.info.assert_called_once()
+
+    @patch("trac_cron_createticket.Ticket", side_effect=Exception("insert failed"))
+    def test_create_ticket_failure_returns_false(self, _mock_ticket_class, plugin, mock_env):
+        job = {
+            "title": "Test Ticket [today]",
+            "owner": "test_user",
+            "description": "Test description",
+            "component": "Testing",
+            "priority": "High",
+            "offset": 0,
+        }
+        assert plugin._create_ticket(job) is False
+        mock_env.log.error.assert_called_once()
 
 
 class TestJobLoading:
@@ -192,6 +207,33 @@ class TestJobLoading:
 
         plugin._load_jobs()
         assert len(plugin._jobs) == 0
+
+    def test_load_jobs_with_invalid_offset_uses_default(self, plugin, mock_env):
+        def mock_get_bool(section, option, default=False):
+            if option == "job1.enabled":
+                return True
+            return default
+
+        def mock_get(section, option, default=""):
+            mapping = {
+                "job1.frequency": "daily",
+                "job1.title": "Daily Report",
+                "job1.owner": "admin",
+                "job1.description": "Automated report",
+                "job1.component": "Reports",
+                "job1.priority": "Normal",
+                "job1.offset": "invalid-offset",
+                "job1.last_run": "invalid-last-run",
+            }
+            return mapping.get(option, default)
+
+        mock_env.config.getbool = Mock(side_effect=mock_get_bool)
+        mock_env.config.get = Mock(side_effect=mock_get)
+
+        plugin._load_jobs()
+        assert len(plugin._jobs) == 1
+        assert plugin._jobs[0]["offset"] == 0
+        assert plugin._jobs[0]["last_run"] == 0
 
 
 class TestComponentsAndPriorities:
@@ -264,3 +306,126 @@ class TestFormHandling:
         plugin._create_job_from_form(req)
 
         mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.enabled", "false")
+
+    def test_save_jobs_from_form_invalid_integers_are_sanitized(self, plugin, mock_env):
+        req = Mock()
+        req.args = {
+            "ticker_interval": "invalid-interval",
+            "enabled_1": "true",
+            "frequency_1": "daily",
+            "title_1": "Daily Report",
+            "owner_1": "admin",
+            "description_1": "Auto ticket",
+            "component_1": "Reports",
+            "priority_1": "Normal",
+            "offset_1": "invalid-offset",
+        }
+
+        plugin._save_jobs_from_form(req)
+
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "ticker_interval", "60")
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.offset", "0")
+
+    def test_create_job_from_form_invalid_offset_uses_zero(self, plugin, mock_env):
+        req = Mock()
+        req.args = {
+            "new_enabled": "true",
+            "new_frequency": "daily",
+            "new_title": "Create Daily Report",
+            "new_owner": "admin",
+            "new_description": "Auto ticket",
+            "new_component": "Reports",
+            "new_priority": "Normal",
+            "new_offset": "invalid-offset",
+        }
+
+        plugin._create_job_from_form(req)
+
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.offset", "0")
+
+
+class TestScheduler:
+    @patch("trac_cron_createticket.sleep")
+    @patch("trac_cron_createticket.time", return_value=2000000)
+    def test_run_scheduler_initializes_last_run_without_creating_ticket(self, _mock_time, mock_sleep, plugin, mock_env):
+        plugin._jobs = [
+            {
+                "name": "job1",
+                "cron": "0 0 * * *",
+                "title": "Daily Report",
+                "owner": "admin",
+                "description": "",
+                "component": "",
+                "priority": "",
+                "status": "new",
+                "offset": 0,
+                "last_run": 0,
+            }
+        ]
+        plugin._load_jobs = Mock()
+        plugin._create_ticket = Mock(return_value=True)
+
+        def stop_after_sleep(_interval):
+            plugin._stop_ticker = True
+
+        mock_sleep.side_effect = stop_after_sleep
+        plugin._stop_ticker = False
+        plugin._run_scheduler()
+
+        plugin._create_ticket.assert_not_called()
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.last_run", "2000000")
+
+    @patch("trac_cron_createticket.sleep")
+    @patch("trac_cron_createticket.time", return_value=2000000)
+    def test_run_scheduler_does_not_update_last_run_on_create_failure(self, _mock_time, mock_sleep, plugin, mock_env):
+        plugin._jobs = [
+            {
+                "name": "job1",
+                "cron": "0 * * * *",
+                "title": "Hourly Report",
+                "owner": "admin",
+                "description": "",
+                "component": "",
+                "priority": "",
+                "status": "new",
+                "offset": 0,
+                "last_run": 1,
+            }
+        ]
+        plugin._load_jobs = Mock()
+        plugin._create_ticket = Mock(return_value=False)
+
+        def stop_after_sleep(_interval):
+            plugin._stop_ticker = True
+
+        mock_sleep.side_effect = stop_after_sleep
+        plugin._stop_ticker = False
+        plugin._run_scheduler()
+
+        plugin._create_ticket.assert_called_once()
+        assert not any(call.args[1] == "job1.last_run" for call in mock_env.config.set.call_args_list)
+
+
+class TestAdminPanelActions:
+    def test_delete_job_removes_last_run(self, plugin, mock_env):
+        plugin._delete_job(1)
+
+        mock_env.config.remove.assert_any_call("trac_cron_createticket", "job1.last_run")
+
+    def test_render_admin_panel_ignores_invalid_delete_action(self, plugin):
+        req = Mock()
+        req.method = "POST"
+        req.args = {"action": "delete_job_not-a-number"}
+        req.href = Mock()
+        req.href.admin = Mock(return_value="/admin/endpoint")
+        req.redirect = Mock()
+
+        plugin._ensure_ticker_state = Mock()
+        plugin._delete_job = Mock()
+        plugin._render_admin_page = Mock(return_value=("template.html", {}))
+
+        result = plugin.render_admin_panel(req, "trac_cron_createticket", "cron_createticket", "")
+
+        plugin._delete_job.assert_not_called()
+        req.redirect.assert_called_once_with("/admin/endpoint")
+        assert result == ("template.html", {})

@@ -74,7 +74,7 @@ class CronCreateTicketPlugin(Component):
             component = self.env.config.get("trac_cron_createticket", f"{prefix}.component", "")
             priority = self.env.config.get("trac_cron_createticket", f"{prefix}.priority", "")
             status = self.env.config.get("trac_cron_createticket", f"{prefix}.status", "new")
-            offset = self.env.config.getint("trac_cron_createticket", f"{prefix}.offset", 0)
+            offset = self._get_config_int(f"{prefix}.offset", default=0, minimum=0)
 
             jobs.append(
                 {
@@ -87,7 +87,7 @@ class CronCreateTicketPlugin(Component):
                     "priority": priority,
                     "status": status,
                     "offset": offset,
-                    "last_run": self.env.config.getint("trac_cron_createticket", f"{prefix}.last_run", 0),
+                    "last_run": self._get_config_int(f"{prefix}.last_run", default=0, minimum=0),
                 }
             )
 
@@ -166,8 +166,10 @@ class CronCreateTicketPlugin(Component):
                 ticket.insert()
 
             self.env.log.info(f"Created ticket #{ticket.id}: {title}")
+            return True
         except Exception as e:
             self.env.log.error(f"Failed to create ticket: {e}")
+            return False
 
     def _run_scheduler(self):
         self.env.log.info("CronCreateTicket scheduler started")
@@ -177,24 +179,24 @@ class CronCreateTicketPlugin(Component):
 
             for job in self._jobs:
                 try:
-                    cron = croniter(job["cron"], current_time)
-                    next_run = cron.get_prev()
-                    if job["last_run"] == 0 or next_run > job["last_run"]:
-                        self.env.log.info(f"Creating ticket for job {job['name']}: {job['title']}")
-                        self._create_ticket(job)
+                    if job["last_run"] == 0:
                         job["last_run"] = int(current_time)
-
-                        prefix = job["name"]
-                        self.env.config.set(
-                            "trac_cron_createticket",
-                            f"{prefix}.last_run",
-                            str(int(current_time)),
-                        )
+                        self._set_job_last_run(job["name"], job["last_run"])
                         self.env.config.save()
+                        continue
+
+                    cron = croniter(job["cron"], current_time)
+                    due_run = int(cron.get_prev())
+                    if due_run > job["last_run"]:
+                        self.env.log.info(f"Creating ticket for job {job['name']}: {job['title']}")
+                        if self._create_ticket(job):
+                            job["last_run"] = due_run
+                            self._set_job_last_run(job["name"], job["last_run"])
+                            self.env.config.save()
                 except Exception as e:
                     self.env.log.error(f"Error processing job {job['name']}: {e}")
 
-            sleep(self.ticker_interval)
+            sleep(self._get_ticker_interval())
         self.env.log.info("CronCreateTicket scheduler stopped")
 
     def _start_ticker(self):
@@ -297,7 +299,7 @@ class CronCreateTicketPlugin(Component):
                 "description": self.env.config.get("trac_cron_createticket", f"{prefix}.description", ""),
                 "component": self.env.config.get("trac_cron_createticket", f"{prefix}.component", ""),
                 "priority": self.env.config.get("trac_cron_createticket", f"{prefix}.priority", ""),
-                "offset": self.env.config.getint("trac_cron_createticket", f"{prefix}.offset", 0),
+                "offset": self._get_config_int(f"{prefix}.offset", default=0, minimum=0),
             }
             has_data = any(
                 [
@@ -316,7 +318,7 @@ class CronCreateTicketPlugin(Component):
 
         data["jobs"] = jobs
         data["ticker_enabled"] = self.ticker_enabled
-        data["ticker_interval"] = self.ticker_interval
+        data["ticker_interval"] = self._get_ticker_interval()
 
         data["components"] = self._get_components()
         data["priorities"] = self._get_priorities()
@@ -335,6 +337,38 @@ class CronCreateTicketPlugin(Component):
             cursor.execute("SELECT name FROM enum WHERE type='priority' ORDER BY value")
             return [row[0] for row in cursor.fetchall()]
 
+    def _safe_int(self, value, default=0, minimum=None, field_name="value"):
+        try:
+            parsed = int(value)
+        except (TypeError, ValueError):
+            self.env.log.warning(f"Invalid integer for {field_name}: {value!r}, using {default}.")
+            return default
+
+        if minimum is not None and parsed < minimum:
+            self.env.log.warning(
+                f"Integer for {field_name} below minimum {minimum}: {value!r}, using {default}."
+            )
+            return default
+        return parsed
+
+    def _get_config_int(self, option, default=0, minimum=None):
+        value = self.env.config.get("trac_cron_createticket", option, str(default))
+        return self._safe_int(value, default=default, minimum=minimum, field_name=option)
+
+    def _get_request_int(self, req, field_name, default=0, minimum=None):
+        value = req.args.get(field_name, str(default))
+        return self._safe_int(value, default=default, minimum=minimum, field_name=field_name)
+
+    def _get_ticker_interval(self):
+        return self._get_config_int("ticker_interval", default=60, minimum=1)
+
+    def _set_job_last_run(self, job_name, last_run):
+        self.env.config.set(
+            "trac_cron_createticket",
+            f"{job_name}.last_run",
+            str(int(last_run)),
+        )
+
     def _is_checked(self, req, field_name):
         value = req.args.get(field_name)
         if value is None:
@@ -344,6 +378,9 @@ class CronCreateTicketPlugin(Component):
         return bool(value)
 
     def _save_jobs_from_form(self, req):
+        current_interval = self._get_ticker_interval()
+        ticker_interval = self._get_request_int(req, "ticker_interval", default=current_interval, minimum=1)
+
         self.env.config.set(
             "trac_cron_createticket",
             "ticker_enabled",
@@ -352,10 +389,7 @@ class CronCreateTicketPlugin(Component):
         self.env.config.set(
             "trac_cron_createticket",
             "ticker_interval",
-            req.args.get(
-                "ticker_interval",
-                self.env.config.get("trac_cron_createticket", "ticker_interval", "60"),
-            ),
+            str(ticker_interval),
         )
 
         max_jobs = 10
@@ -407,7 +441,7 @@ class CronCreateTicketPlugin(Component):
             self.env.config.set(
                 "trac_cron_createticket",
                 f"{prefix}.offset",
-                req.args.get(f"offset_{i}", "0"),
+                str(self._get_request_int(req, f"offset_{i}", default=0, minimum=0)),
             )
 
         self.env.config.save()
@@ -434,7 +468,7 @@ class CronCreateTicketPlugin(Component):
         description = req.args.get("new_description", "")
         component = req.args.get("new_component", "")
         priority = req.args.get("new_priority", "")
-        offset = int(req.args.get("new_offset", "0"))
+        offset = self._get_request_int(req, "new_offset", default=0, minimum=0)
         enabled = self._is_checked(req, "new_enabled")
 
         if not title:
@@ -505,6 +539,7 @@ class CronCreateTicketPlugin(Component):
         self.env.config.remove("trac_cron_createticket", f"{prefix}.priority")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.status")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.offset")
+        self.env.config.remove("trac_cron_createticket", f"{prefix}.last_run")
         self.env.config.save()
         self._load_jobs()
 
@@ -527,8 +562,16 @@ class CronCreateTicketPlugin(Component):
                 self._create_job_from_form(req)
                 req.redirect(req.href.admin(cat, page))
             elif action and action.startswith("delete_job_"):
-                job_index = int(action.split("_")[-1])
-                self._delete_job(job_index)
+                job_index = self._safe_int(
+                    action.rsplit("_", 1)[-1],
+                    default=0,
+                    minimum=1,
+                    field_name="delete_job_index",
+                )
+                if 1 <= job_index <= 10:
+                    self._delete_job(job_index)
+                else:
+                    self.env.log.warning(f"Ignoring invalid delete action: {action!r}")
                 req.redirect(req.href.admin(cat, page))
         return self._render_admin_page(req)
 
