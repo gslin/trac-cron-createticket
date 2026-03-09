@@ -335,14 +335,36 @@ class CronCreateTicketPlugin(Component):
             cursor.execute("SELECT name FROM enum WHERE type='priority' ORDER BY value")
             return [row[0] for row in cursor.fetchall()]
 
+    def _is_checked(self, req, field_name):
+        value = req.args.get(field_name)
+        if value is None:
+            return False
+        if isinstance(value, str):
+            return value.strip().lower() not in ("", "0", "false", "off", "no")
+        return bool(value)
+
     def _save_jobs_from_form(self, req):
+        self.env.config.set(
+            "trac_cron_createticket",
+            "ticker_enabled",
+            str(self._is_checked(req, "ticker_enabled")).lower(),
+        )
+        self.env.config.set(
+            "trac_cron_createticket",
+            "ticker_interval",
+            req.args.get(
+                "ticker_interval",
+                self.env.config.get("trac_cron_createticket", "ticker_interval", "60"),
+            ),
+        )
+
         max_jobs = 10
         for i in range(1, max_jobs + 1):
             prefix = f"job{i}"
             self.env.config.set(
                 "trac_cron_createticket",
                 f"{prefix}.enabled",
-                str(bool(req.args.get(f"enabled_{i}"))).lower(),
+                str(self._is_checked(req, f"enabled_{i}")).lower(),
             )
             frequency = req.args.get(f"frequency_{i}", "")
             if frequency == "custom":
@@ -413,7 +435,7 @@ class CronCreateTicketPlugin(Component):
         component = req.args.get("new_component", "")
         priority = req.args.get("new_priority", "")
         offset = int(req.args.get("new_offset", "0"))
-        enabled = bool(req.args.get("new_enabled"))
+        enabled = self._is_checked(req, "new_enabled")
 
         if not title:
             return

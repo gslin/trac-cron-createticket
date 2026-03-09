@@ -224,3 +224,43 @@ class TestComponentsAndPriorities:
 
         result = plugin._get_priorities()
         assert result == ["Low", "Normal", "High"]
+
+
+class TestFormHandling:
+    def test_save_jobs_from_form_persists_scheduler_and_false_checkbox(self, plugin, mock_env):
+        req = Mock()
+        req.args = {
+            "ticker_interval": "30",
+            "enabled_1": "false",
+            "frequency_1": "daily",
+            "title_1": "Daily Report",
+            "owner_1": "admin",
+            "description_1": "Auto ticket",
+            "component_1": "Reports",
+            "priority_1": "Normal",
+            "offset_1": "0",
+        }
+
+        plugin._save_jobs_from_form(req)
+
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "ticker_enabled", "false")
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "ticker_interval", "30")
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.enabled", "false")
+        mock_env.config.save.assert_called_once()
+
+    def test_create_job_from_form_treats_false_checkbox_as_disabled(self, plugin, mock_env):
+        req = Mock()
+        req.args = {
+            "new_enabled": "false",
+            "new_frequency": "daily",
+            "new_title": "Create Daily Report",
+            "new_owner": "admin",
+            "new_description": "Auto ticket",
+            "new_component": "Reports",
+            "new_priority": "Normal",
+            "new_offset": "0",
+        }
+
+        plugin._create_job_from_form(req)
+
+        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.enabled", "false")
