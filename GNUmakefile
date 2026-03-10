@@ -7,12 +7,12 @@
 
 test:
 	@echo "Running tests..."
-	@uv run pytest || echo "No tests found or pytest not installed."
+	@uv run --extra dev pytest || echo "No tests found or pytest not installed."
 
 # Lint the codebase using ruff (via uv).
 lint:
 	@echo "Running ruff linter..."
-	@uv run ruff check .
+	@uv run --extra dev ruff check .
 
 # Clean generated artefacts
 clean:
