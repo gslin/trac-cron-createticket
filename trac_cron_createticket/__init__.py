@@ -65,7 +65,7 @@ class CronCreateTicketPlugin(Component):
             cursor = db.cursor()
             cursor.execute(
                 "CREATE TABLE IF NOT EXISTS cron_createticket_jobs ("
-                "  job_name TEXT PRIMARY KEY,"
+                "  job_name VARCHAR(64) NOT NULL PRIMARY KEY,"
                 "  last_run INTEGER NOT NULL DEFAULT 0"
                 ")"
             )
