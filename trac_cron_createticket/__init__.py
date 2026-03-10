@@ -833,14 +833,16 @@ class CronCreateTicketPlugin(Component):
         self._load_jobs()
 
     def get_admin_panels(self, req):
-        yield (
-            'trac_cron_createticket',
-            'Cron Create Ticket',
-            'cron_createticket',
-            'Cron Create Ticket',
-        )
+        if 'TRAC_CRON_CREATE_TICKET_ADMIN' in req.perm:
+            yield (
+                'trac_cron_createticket',
+                'Cron Create Ticket',
+                'cron_createticket',
+                'Cron Create Ticket',
+            )
 
     def render_admin_panel(self, req, cat, page, path_info):
+        req.perm.require('TRAC_CRON_CREATE_TICKET_ADMIN')
         self._ensure_ticker_state()
         if req.method == 'POST':
             action = req.args.get('action')
