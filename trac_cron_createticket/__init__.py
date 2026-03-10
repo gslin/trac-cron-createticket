@@ -16,7 +16,7 @@ from trac.util.html import html
 from trac.web.chrome import INavigationContributor, ITemplateProvider
 
 MAX_JOBS = 10
-DB_VERSION = 2
+DB_VERSION = 3
 
 
 class CronCreateTicketPlugin(Component):
@@ -66,7 +66,8 @@ class CronCreateTicketPlugin(Component):
             cursor.execute(
                 "CREATE TABLE IF NOT EXISTS cron_createticket_jobs ("
                 "  job_name VARCHAR(64) NOT NULL PRIMARY KEY,"
-                "  last_run INTEGER NOT NULL DEFAULT 0"
+                "  last_run INTEGER NOT NULL DEFAULT 0,"
+                "  enabled INTEGER NOT NULL DEFAULT 1"
                 ")"
             )
 
@@ -83,6 +84,23 @@ class CronCreateTicketPlugin(Component):
                 self.env.config.remove("trac_cron_createticket", config_key)
         self.env.config.save()
 
+    def _add_enabled_column(self):
+        """Add the enabled column to the existing table and migrate values."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "ALTER TABLE cron_createticket_jobs "
+                "ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
+            )
+
+        # Migrate enabled values from config to DB
+        for i in range(1, MAX_JOBS + 1):
+            prefix = f"job{i}"
+            enabled = self.env.config.getbool(
+                "trac_cron_createticket", f"{prefix}.enabled", False
+            )
+            self._db_set_enabled(prefix, enabled)
+
     def _upgrade_db(self):
         db_version = self.env.config.getint("trac_cron_createticket", "db_version", 0)
 
@@ -95,8 +113,13 @@ class CronCreateTicketPlugin(Component):
         if db_version < 2:
             self._create_job_state_table()
             self._migrate_last_run_to_db()
-            self.env.config.set("trac_cron_createticket", "db_version", str(DB_VERSION))
-            self.env.config.save()
+            db_version = 2
+
+        if db_version < 3:
+            self._add_enabled_column()
+
+        self.env.config.set("trac_cron_createticket", "db_version", str(DB_VERSION))
+        self.env.config.save()
 
     def _init_db(self):
         self._upgrade_db()
@@ -139,8 +162,8 @@ class CronCreateTicketPlugin(Component):
                 )
             else:
                 cursor.execute(
-                    "INSERT INTO cron_createticket_jobs (job_name, last_run) VALUES (%s, %s)",
-                    (job_name, int(last_run)),
+                    "INSERT INTO cron_createticket_jobs (job_name, last_run, enabled) VALUES (%s, %s, %s)",
+                    (job_name, int(last_run), 0),
                 )
 
     def _db_try_claim_job(self, job_name, expected_last_run, new_last_run):
@@ -173,8 +196,8 @@ class CronCreateTicketPlugin(Component):
             if cursor.fetchone():
                 return False
             cursor.execute(
-                "INSERT INTO cron_createticket_jobs (job_name, last_run) VALUES (%s, %s)",
-                (job_name, int(last_run)),
+                "INSERT INTO cron_createticket_jobs (job_name, last_run, enabled) VALUES (%s, %s, %s)",
+                (job_name, int(last_run), 1),
             )
             return True
 
@@ -187,13 +210,44 @@ class CronCreateTicketPlugin(Component):
                 (job_name,),
             )
 
+    def _db_get_enabled(self, job_name):
+        """Read the enabled flag from the DB for a given job."""
+        with self.env.db_query as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT enabled FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            row = cursor.fetchone()
+            return bool(row[0]) if row else False
+
+    def _db_set_enabled(self, job_name, enabled):
+        """Set the enabled flag in DB, creating the row if needed."""
+        enabled_int = 1 if enabled else 0
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT 1 FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            if cursor.fetchone():
+                cursor.execute(
+                    "UPDATE cron_createticket_jobs SET enabled=%s WHERE job_name=%s",
+                    (enabled_int, job_name),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO cron_createticket_jobs (job_name, last_run, enabled) VALUES (%s, %s, %s)",
+                    (job_name, 0, enabled_int),
+                )
+
     # -- Job loading --
 
     def _load_jobs(self):
         jobs = []
         for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
-            enabled = self.env.config.getbool("trac_cron_createticket", f"{prefix}.enabled", False)
+            enabled = self._db_get_enabled(prefix)
             if not enabled:
                 continue
 
@@ -428,7 +482,7 @@ class CronCreateTicketPlugin(Component):
             prefix = f"job{i}"
             job = {
                 "index": i,
-                "enabled": self.env.config.getbool("trac_cron_createticket", f"{prefix}.enabled", False),
+                "enabled": self._db_get_enabled(prefix),
                 "frequency": self.env.config.get("trac_cron_createticket", f"{prefix}.frequency", ""),
                 "title": self.env.config.get("trac_cron_createticket", f"{prefix}.title", ""),
                 "owner": self.env.config.get("trac_cron_createticket", f"{prefix}.owner", ""),
@@ -528,11 +582,13 @@ class CronCreateTicketPlugin(Component):
 
         for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
+            enabled = self._is_checked(req, f"enabled_{i}")
             self.env.config.set(
                 "trac_cron_createticket",
                 f"{prefix}.enabled",
-                str(self._is_checked(req, f"enabled_{i}")).lower(),
+                str(enabled).lower(),
             )
+            self._db_set_enabled(prefix, enabled)
             frequency = req.args.get(f"frequency_{i}", "")
             if frequency == "custom":
                 frequency = req.args.get(f"frequency_custom_{i}", "")
@@ -616,6 +672,7 @@ class CronCreateTicketPlugin(Component):
                     f"{prefix}.enabled",
                     str(enabled).lower(),
                 )
+                self._db_set_enabled(prefix, enabled)
                 self.env.config.set(
                     "trac_cron_createticket",
                     f"{prefix}.frequency",

@@ -172,17 +172,15 @@ class TestDatabaseOperations:
 
 class TestJobLoading:
     def test_load_jobs_empty_config(self, plugin, mock_env):
-        mock_env.config.getbool = Mock(return_value=False)
+        plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
         plugin._load_jobs()
         assert plugin._jobs == []
 
     def test_load_jobs_with_enabled_job(self, plugin, mock_env):
 
-        def mock_get_bool(section, option, default=False):
-            if option == "job1.enabled":
-                return True
-            return default
+        def mock_get_enabled(job_name):
+            return job_name == "job1"
 
         def mock_get(section, option, default=""):
             mapping = {
@@ -195,7 +193,7 @@ class TestJobLoading:
             }
             return mapping.get(option, default)
 
-        mock_env.config.getbool = Mock(side_effect=mock_get_bool)
+        plugin._db_get_enabled = Mock(side_effect=mock_get_enabled)
         mock_env.config.get = Mock(side_effect=mock_get)
         plugin._db_get_last_run = Mock(return_value=1000000)
 
@@ -208,27 +206,23 @@ class TestJobLoading:
 
     def test_load_jobs_with_invalid_frequency(self, plugin, mock_env):
 
-        def mock_get_bool(section, option, default=False):
-            if option == "job1.enabled":
-                return True
-            return default
+        def mock_get_enabled(job_name):
+            return job_name == "job1"
 
         def mock_get(section, option, default=""):
             if option == "job1.frequency":
                 return "invalid"
             return default
 
-        mock_env.config.getbool = Mock(side_effect=mock_get_bool)
+        plugin._db_get_enabled = Mock(side_effect=mock_get_enabled)
         mock_env.config.get = Mock(side_effect=mock_get)
 
         plugin._load_jobs()
         assert len(plugin._jobs) == 0
 
     def test_load_jobs_with_invalid_offset_uses_default(self, plugin, mock_env):
-        def mock_get_bool(section, option, default=False):
-            if option == "job1.enabled":
-                return True
-            return default
+        def mock_get_enabled(job_name):
+            return job_name == "job1"
 
         def mock_get(section, option, default=""):
             mapping = {
@@ -242,7 +236,7 @@ class TestJobLoading:
             }
             return mapping.get(option, default)
 
-        mock_env.config.getbool = Mock(side_effect=mock_get_bool)
+        plugin._db_get_enabled = Mock(side_effect=mock_get_enabled)
         mock_env.config.get = Mock(side_effect=mock_get)
         plugin._db_get_last_run = Mock(return_value=0)
 
@@ -298,13 +292,16 @@ class TestFormHandling:
             "priority_1": "Normal",
             "offset_1": "0",
         }
+        plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
+        plugin._db_set_enabled = Mock()
 
         plugin._save_jobs_from_form(req)
 
         mock_env.config.set.assert_any_call("trac_cron_createticket", "ticker_enabled", "false")
         mock_env.config.set.assert_any_call("trac_cron_createticket", "ticker_interval", "30")
         mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.enabled", "false")
+        plugin._db_set_enabled.assert_any_call("job1", False)
         mock_env.config.save.assert_called_once()
 
     def test_create_job_from_form_treats_false_checkbox_as_disabled(self, plugin, mock_env):
@@ -319,11 +316,14 @@ class TestFormHandling:
             "new_priority": "Normal",
             "new_offset": "0",
         }
+        plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
+        plugin._db_set_enabled = Mock()
 
         plugin._create_job_from_form(req)
 
         mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.enabled", "false")
+        plugin._db_set_enabled.assert_called_once_with("job1", False)
 
     def test_save_jobs_from_form_invalid_integers_are_sanitized(self, plugin, mock_env):
         req = Mock()
@@ -338,7 +338,9 @@ class TestFormHandling:
             "priority_1": "Normal",
             "offset_1": "invalid-offset",
         }
+        plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
+        plugin._db_set_enabled = Mock()
 
         plugin._save_jobs_from_form(req)
 
@@ -357,7 +359,9 @@ class TestFormHandling:
             "new_priority": "Normal",
             "new_offset": "invalid-offset",
         }
+        plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
+        plugin._db_set_enabled = Mock()
 
         plugin._create_job_from_form(req)
 
@@ -547,9 +551,57 @@ class TestDbJobState:
         assert "DELETE" in mock_cursor.execute.call_args.args[0]
 
 
+class TestDbEnabledState:
+    def test_db_get_enabled_returns_true(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db(query_rows=[(1,)])
+        mock_env.db_query.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_query.__exit__ = Mock(return_value=False)
+
+        assert plugin._db_get_enabled("job1") is True
+
+    def test_db_get_enabled_returns_false_when_disabled(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db(query_rows=[(0,)])
+        mock_env.db_query.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_query.__exit__ = Mock(return_value=False)
+
+        assert plugin._db_get_enabled("job1") is False
+
+    def test_db_get_enabled_returns_false_when_not_found(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_env.db_query.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_query.__exit__ = Mock(return_value=False)
+
+        assert plugin._db_get_enabled("job1") is False
+
+    def test_db_set_enabled_updates_existing(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_cursor.fetchone = Mock(return_value=(1,))
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        plugin._db_set_enabled("job1", True)
+        assert mock_cursor.execute.call_count == 2  # SELECT + UPDATE
+        update_call = mock_cursor.execute.call_args_list[1]
+        assert "UPDATE" in update_call.args[0]
+        assert update_call.args[1] == (1, "job1")
+
+    def test_db_set_enabled_inserts_new(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_cursor.fetchone = Mock(return_value=None)
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        plugin._db_set_enabled("job1", False)
+        assert mock_cursor.execute.call_count == 2  # SELECT + INSERT
+        insert_call = mock_cursor.execute.call_args_list[1]
+        assert "INSERT" in insert_call.args[0]
+        assert insert_call.args[1] == ("job1", 0, 0)
+
+
 class TestAdminPanelActions:
     def test_delete_job_cleans_db_state(self, plugin, mock_env):
         plugin._db_delete_job = Mock()
+        plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
 
         plugin._delete_job(1)
@@ -585,6 +637,10 @@ class TestDbUpgrade:
         mock_env.config.getint = Mock(return_value=1)
         assert plugin.environment_needs_upgrade() is True
 
-    def test_environment_no_upgrade_when_current(self, plugin, mock_env):
+    def test_environment_needs_upgrade_when_version_2(self, plugin, mock_env):
         mock_env.config.getint = Mock(return_value=2)
+        assert plugin.environment_needs_upgrade() is True
+
+    def test_environment_no_upgrade_when_current(self, plugin, mock_env):
+        mock_env.config.getint = Mock(return_value=3)
         assert plugin.environment_needs_upgrade() is False
