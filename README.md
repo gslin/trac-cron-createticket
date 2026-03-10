@@ -2,7 +2,7 @@
 
 ## Introduction
 
-`TracCronCreateTicket` is a plugin for **Trac 1.6+** that provides **automated, scheduled ticket creation**. Users can configure schedules via `trac.ini` or through the admin web interface. Supported schedule types:
+`TracCronCreateTicket` is a plugin for **Trac 1.6+** that provides **automated, scheduled ticket creation**. Job configurations are stored in the **database**, making it safe for multi-process (FastCGI) and multi-machine (HA) deployments. Supported schedule types:
 
 - **Presets**: `hourly`, `daily`, `weekly`, `monthly`, `quarterly`, `yearly`
 - **Cron expressions** (using `croniter`), e.g. `* 0/2 * * * ? *`
@@ -67,34 +67,22 @@ If you are upgrading from a previous version, run the database upgrade after ins
 trac-admin /path/to/trac_env upgrade
 ```
 
-This creates the `cron_createticket_jobs` table and migrates job state from `trac.ini` to the database. The migration is required for cross-process locking to prevent duplicate ticket creation in multi-process environments (e.g. FastCGI).
+This creates/updates the `cron_createticket_jobs` table and migrates job data from `trac.ini` to the database. All job configurations (frequency, title, owner, description, component, priority) are stored in the database for cross-process and cross-machine consistency.
 
 ## Configuration
 
-The plugin can be configured in two ways:
-
-### 1. Via the Admin Web Interface (recommended)
+### Via the Admin Web Interface
 - Navigate to *Admin → Cron Create Ticket* in Trac.
 - Set **Scheduler Settings** (enable/disable and check interval).
 - Add up to 10 jobs in **Scheduled Jobs**, specifying frequency, title, owner, etc.
 - Click **Save Configuration**.
-- Use **Test Ticket Creation** to immediately verify a job.
 
-### 2. Directly in `trac.ini`
+All job data is stored in the database. Only global scheduler settings (`ticker_enabled`, `ticker_interval`) remain in `trac.ini`:
+
 ```ini
 [trac_cron_createticket]
-# Global settings
 ticker_enabled = true
 ticker_interval = 60   ; seconds between checks
-
-# Example job (job1)
-job1.enabled = true
-job1.frequency = daily   ; preset or cron expression
-job1.title = Daily report [today]
-job1.owner = admin
-job1.description = This ticket is generated automatically each day.
-job1.component = System
-job1.priority = normal
 ```
 
 ## Permissions

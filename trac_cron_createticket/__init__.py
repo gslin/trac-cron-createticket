@@ -16,7 +16,7 @@ from trac.util.html import html
 from trac.web.chrome import INavigationContributor, ITemplateProvider
 
 MAX_JOBS = 10
-DB_VERSION = 3
+DB_VERSION = 4
 
 
 class CronCreateTicketPlugin(Component):
@@ -60,14 +60,85 @@ class CronCreateTicketPlugin(Component):
 
     # -- DB schema & migration --
 
-    def _create_job_state_table(self):
+    def _create_job_table_v4(self):
+        """Create the full job table (v4 schema)."""
         with self.env.db_transaction as db:
             cursor = db.cursor()
             cursor.execute(
                 "CREATE TABLE IF NOT EXISTS cron_createticket_jobs ("
                 "  job_name VARCHAR(64) NOT NULL PRIMARY KEY,"
                 "  last_run INTEGER NOT NULL DEFAULT 0,"
-                "  enabled INTEGER NOT NULL DEFAULT 1"
+                "  enabled INTEGER NOT NULL DEFAULT 0,"
+                "  frequency VARCHAR(255) NOT NULL DEFAULT '',"
+                "  title VARCHAR(255) NOT NULL DEFAULT '',"
+                "  owner VARCHAR(255) NOT NULL DEFAULT '',"
+                "  description TEXT NOT NULL,"
+                "  component VARCHAR(255) NOT NULL DEFAULT '',"
+                "  priority VARCHAR(255) NOT NULL DEFAULT '',"
+                "  status VARCHAR(64) NOT NULL DEFAULT 'new'"
+                ")"
+            )
+
+    def _migrate_v3_to_v4(self):
+        """Add job config columns and migrate data from trac.ini to DB."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            for col, col_type in [
+                ("frequency", "VARCHAR(255) NOT NULL DEFAULT ''"),
+                ("title", "VARCHAR(255) NOT NULL DEFAULT ''"),
+                ("owner", "VARCHAR(255) NOT NULL DEFAULT ''"),
+                ("description", "TEXT NOT NULL"),
+                ("component", "VARCHAR(255) NOT NULL DEFAULT ''"),
+                ("priority", "VARCHAR(255) NOT NULL DEFAULT ''"),
+                ("status", "VARCHAR(64) NOT NULL DEFAULT 'new'"),
+            ]:
+                try:
+                    cursor.execute(
+                        f"ALTER TABLE cron_createticket_jobs ADD COLUMN {col} {col_type}"
+                    )
+                except Exception:
+                    pass  # Column may already exist
+
+        # Migrate job config from trac.ini to DB
+        section = "trac_cron_createticket"
+        for i in range(1, MAX_JOBS + 1):
+            prefix = f"job{i}"
+            title = self.env.config.get(section, f"{prefix}.title", "")
+            if not title:
+                continue
+
+            frequency = self.env.config.get(section, f"{prefix}.frequency", "")
+            owner = self.env.config.get(section, f"{prefix}.owner", "")
+            description = self.env.config.get(section, f"{prefix}.description", "")
+            component = self.env.config.get(section, f"{prefix}.component", "")
+            priority = self.env.config.get(section, f"{prefix}.priority", "")
+            status = self.env.config.get(section, f"{prefix}.status", "new")
+
+            self._db_save_job(prefix, {
+                "frequency": frequency,
+                "title": title,
+                "owner": owner,
+                "description": description,
+                "component": component,
+                "priority": priority,
+                "status": status,
+            })
+
+            # Remove migrated keys from trac.ini
+            for key in ("enabled", "frequency", "title", "owner",
+                        "description", "component", "priority", "status"):
+                self.env.config.remove(section, f"{prefix}.{key}")
+
+        self.env.config.save()
+
+    def _create_job_state_table(self):
+        """Create the v2 table (used during sequential upgrade)."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "CREATE TABLE IF NOT EXISTS cron_createticket_jobs ("
+                "  job_name VARCHAR(64) NOT NULL PRIMARY KEY,"
+                "  last_run INTEGER NOT NULL DEFAULT 0"
                 ")"
             )
 
@@ -93,7 +164,6 @@ class CronCreateTicketPlugin(Component):
                 "ADD COLUMN enabled INTEGER NOT NULL DEFAULT 1"
             )
 
-        # Migrate enabled values from config to DB
         for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
             enabled = self.env.config.getbool(
@@ -105,8 +175,9 @@ class CronCreateTicketPlugin(Component):
         db_version = self.env.config.getint("trac_cron_createticket", "db_version", 0)
 
         if db_version < 1:
+            # Fresh install: create v4 table directly
+            self._create_job_table_v4()
             self.env.config.set("trac_cron_createticket", "db_version", str(DB_VERSION))
-            self._create_job_state_table()
             self.env.config.save()
             return
 
@@ -117,6 +188,10 @@ class CronCreateTicketPlugin(Component):
 
         if db_version < 3:
             self._add_enabled_column()
+            db_version = 3
+
+        if db_version < 4:
+            self._migrate_v3_to_v4()
 
         self.env.config.set("trac_cron_createticket", "db_version", str(DB_VERSION))
         self.env.config.save()
@@ -134,7 +209,103 @@ class CronCreateTicketPlugin(Component):
     def upgrade_environment(self, db=None):
         self._init_db()
 
-    # -- DB operations for job state --
+    # -- DB operations --
+
+    def _db_get_job(self, job_name):
+        """Read a full job record from the DB."""
+        with self.env.db_query as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT job_name, last_run, enabled, frequency, title, owner, "
+                "description, component, priority, status "
+                "FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            row = cursor.fetchone()
+            if not row:
+                return None
+            return {
+                "name": row[0],
+                "last_run": row[1],
+                "enabled": bool(row[2]),
+                "frequency": row[3],
+                "title": row[4],
+                "owner": row[5],
+                "description": row[6],
+                "component": row[7],
+                "priority": row[8],
+                "status": row[9],
+            }
+
+    def _db_get_all_jobs(self):
+        """Read all job records from the DB that have a title."""
+        with self.env.db_query as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT job_name, last_run, enabled, frequency, title, owner, "
+                "description, component, priority, status "
+                "FROM cron_createticket_jobs ORDER BY job_name"
+            )
+            jobs = []
+            for row in cursor.fetchall():
+                jobs.append({
+                    "name": row[0],
+                    "last_run": row[1],
+                    "enabled": bool(row[2]),
+                    "frequency": row[3],
+                    "title": row[4],
+                    "owner": row[5],
+                    "description": row[6],
+                    "component": row[7],
+                    "priority": row[8],
+                    "status": row[9],
+                })
+            return jobs
+
+    def _db_save_job(self, job_name, data):
+        """Insert or update a full job record in the DB."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT 1 FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            if cursor.fetchone():
+                cursor.execute(
+                    "UPDATE cron_createticket_jobs SET "
+                    "frequency=%s, title=%s, owner=%s, description=%s, "
+                    "component=%s, priority=%s, status=%s "
+                    "WHERE job_name=%s",
+                    (
+                        data.get("frequency", ""),
+                        data.get("title", ""),
+                        data.get("owner", ""),
+                        data.get("description", ""),
+                        data.get("component", ""),
+                        data.get("priority", ""),
+                        data.get("status", "new"),
+                        job_name,
+                    ),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO cron_createticket_jobs "
+                    "(job_name, last_run, enabled, frequency, title, owner, "
+                    "description, component, priority, status) "
+                    "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+                    (
+                        job_name,
+                        0,
+                        0,
+                        data.get("frequency", ""),
+                        data.get("title", ""),
+                        data.get("owner", ""),
+                        data.get("description", ""),
+                        data.get("component", ""),
+                        data.get("priority", ""),
+                        data.get("status", "new"),
+                    ),
+                )
 
     def _db_get_last_run(self, job_name):
         """Read last_run from the DB for a given job."""
@@ -162,8 +333,11 @@ class CronCreateTicketPlugin(Component):
                 )
             else:
                 cursor.execute(
-                    "INSERT INTO cron_createticket_jobs (job_name, last_run, enabled) VALUES (%s, %s, %s)",
-                    (job_name, int(last_run), 0),
+                    "INSERT INTO cron_createticket_jobs "
+                    "(job_name, last_run, enabled, frequency, title, owner, "
+                    "description, component, priority, status) "
+                    "VALUES (%s, %s, 0, '', '', '', '', '', '', 'new')",
+                    (job_name, int(last_run)),
                 )
 
     def _db_try_claim_job(self, job_name, expected_last_run, new_last_run):
@@ -182,27 +356,15 @@ class CronCreateTicketPlugin(Component):
             return cursor.rowcount > 0
 
     def _db_init_job(self, job_name, last_run):
-        """Initialize a job's last_run in DB if it doesn't exist yet.
+        """Set last_run for a job that has last_run=0 (first run).
 
-        Returns True if the row was inserted (first time), False if it
-        already existed (another process initialized it first).
+        Uses CAS to avoid race conditions with other processes.
+        Returns True if successfully updated, False otherwise.
         """
-        with self.env.db_transaction as db:
-            cursor = db.cursor()
-            cursor.execute(
-                "SELECT 1 FROM cron_createticket_jobs WHERE job_name=%s",
-                (job_name,),
-            )
-            if cursor.fetchone():
-                return False
-            cursor.execute(
-                "INSERT INTO cron_createticket_jobs (job_name, last_run, enabled) VALUES (%s, %s, %s)",
-                (job_name, int(last_run), 1),
-            )
-            return True
+        return self._db_try_claim_job(job_name, 0, last_run)
 
     def _db_delete_job(self, job_name):
-        """Remove a job's state from the DB."""
+        """Remove a job's record from the DB."""
         with self.env.db_transaction as db:
             cursor = db.cursor()
             cursor.execute(
@@ -237,45 +399,37 @@ class CronCreateTicketPlugin(Component):
                 )
             else:
                 cursor.execute(
-                    "INSERT INTO cron_createticket_jobs (job_name, last_run, enabled) VALUES (%s, %s, %s)",
-                    (job_name, 0, enabled_int),
+                    "INSERT INTO cron_createticket_jobs "
+                    "(job_name, last_run, enabled, frequency, title, owner, "
+                    "description, component, priority, status) "
+                    "VALUES (%s, 0, %s, '', '', '', '', '', '', 'new')",
+                    (job_name, enabled_int),
                 )
 
     # -- Job loading --
 
     def _load_jobs(self):
+        all_jobs = self._db_get_all_jobs()
         jobs = []
-        for i in range(1, MAX_JOBS + 1):
-            prefix = f"job{i}"
-            enabled = self._db_get_enabled(prefix)
-            if not enabled:
+        for job in all_jobs:
+            if not job["enabled"]:
                 continue
 
-            frequency = self.env.config.get("trac_cron_createticket", f"{prefix}.frequency", "")
-            cron_expr = self._get_cron_expression(frequency)
+            cron_expr = self._get_cron_expression(job["frequency"])
             if not cron_expr:
                 continue
 
-            title = self.env.config.get("trac_cron_createticket", f"{prefix}.title", "")
-            owner = self.env.config.get("trac_cron_createticket", f"{prefix}.owner", "")
-            description = self.env.config.get("trac_cron_createticket", f"{prefix}.description", "")
-            component = self.env.config.get("trac_cron_createticket", f"{prefix}.component", "")
-            priority = self.env.config.get("trac_cron_createticket", f"{prefix}.priority", "")
-            status = self.env.config.get("trac_cron_createticket", f"{prefix}.status", "new")
-
-            jobs.append(
-                {
-                    "name": prefix,
-                    "cron": cron_expr,
-                    "title": title,
-                    "owner": owner,
-                    "description": description,
-                    "component": component,
-                    "priority": priority,
-                    "status": status,
-                    "last_run": self._db_get_last_run(prefix),
-                }
-            )
+            jobs.append({
+                "name": job["name"],
+                "cron": cron_expr,
+                "title": job["title"],
+                "owner": job["owner"],
+                "description": job["description"],
+                "component": job["component"],
+                "priority": job["priority"],
+                "status": job["status"],
+                "last_run": job["last_run"],
+            })
 
         with self._lock:
             self._jobs = jobs
@@ -471,33 +625,31 @@ class CronCreateTicketPlugin(Component):
             ("yearly", "Yearly"),
         ]
 
+        all_jobs = self._db_get_all_jobs()
         jobs = []
-        for i in range(1, MAX_JOBS + 1):
-            prefix = f"job{i}"
-            job = {
-                "index": i,
-                "enabled": self._db_get_enabled(prefix),
-                "frequency": self.env.config.get("trac_cron_createticket", f"{prefix}.frequency", ""),
-                "title": self.env.config.get("trac_cron_createticket", f"{prefix}.title", ""),
-                "owner": self.env.config.get("trac_cron_createticket", f"{prefix}.owner", ""),
-                "description": self.env.config.get("trac_cron_createticket", f"{prefix}.description", ""),
-                "component": self.env.config.get("trac_cron_createticket", f"{prefix}.component", ""),
-                "priority": self.env.config.get("trac_cron_createticket", f"{prefix}.priority", ""),
-                "status": self.env.config.get("trac_cron_createticket", f"{prefix}.status", "new"),
-            }
-            has_data = any(
-                [
-                    job["enabled"],
-                    job["frequency"],
-                    job["title"],
-                    job["owner"],
-                    job["description"],
-                    job["component"],
-                    job["priority"],
-                ]
-            )
+        for job in all_jobs:
+            has_data = any([
+                job["enabled"],
+                job["frequency"],
+                job["title"],
+                job["owner"],
+                job["description"],
+                job["component"],
+                job["priority"],
+            ])
             if has_data:
-                jobs.append(job)
+                # Extract index number from job_name (e.g. "job1" -> 1)
+                index = int(job["name"].replace("job", ""))
+                jobs.append({
+                    "index": index,
+                    "enabled": job["enabled"],
+                    "frequency": job["frequency"],
+                    "title": job["title"],
+                    "owner": job["owner"],
+                    "description": job["description"],
+                    "component": job["component"],
+                    "priority": job["priority"],
+                })
 
         data["jobs"] = jobs
         data["ticker_enabled"] = self.ticker_enabled
@@ -571,68 +723,28 @@ class CronCreateTicketPlugin(Component):
             "ticker_interval",
             str(ticker_interval),
         )
+        self.env.config.save()
 
         for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
             enabled = self._is_checked(req, f"enabled_{i}")
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.enabled",
-                str(enabled).lower(),
-            )
             self._db_set_enabled(prefix, enabled)
+
             frequency = req.args.get(f"frequency_{i}", "")
             if frequency == "custom":
                 frequency = req.args.get(f"frequency_custom_{i}", "")
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.frequency",
-                frequency,
-            )
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.title",
-                req.args.get(f"title_{i}", ""),
-            )
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.owner",
-                req.args.get(f"owner_{i}", ""),
-            )
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.description",
-                req.args.get(f"description_{i}", ""),
-            )
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.component",
-                req.args.get(f"component_{i}", ""),
-            )
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.priority",
-                req.args.get(f"priority_{i}", ""),
-            )
-            self.env.config.set(
-                "trac_cron_createticket",
-                f"{prefix}.status",
-                req.args.get(f"status_{i}", "new") or "new",
-            )
 
-        self.env.config.save()
+            self._db_save_job(prefix, {
+                "frequency": frequency,
+                "title": req.args.get(f"title_{i}", ""),
+                "owner": req.args.get(f"owner_{i}", ""),
+                "description": req.args.get(f"description_{i}", ""),
+                "component": req.args.get(f"component_{i}", ""),
+                "priority": req.args.get(f"priority_{i}", ""),
+                "status": req.args.get(f"status_{i}", "new") or "new",
+            })
+
         self._load_jobs()
-
-    def _test_create_ticket(self, req):
-        job = {
-            "title": req.args.get("test_title", "Test Ticket"),
-            "owner": req.args.get("test_owner", "admin"),
-            "description": req.args.get("test_description", "Test description"),
-            "component": req.args.get("test_component", ""),
-            "priority": req.args.get("test_priority", ""),
-            "offset": 0,
-        }
-        self._create_ticket(job)
 
     def _create_job_from_form(self, req):
         frequency = req.args.get("new_frequency")
@@ -649,67 +761,29 @@ class CronCreateTicketPlugin(Component):
         if not title:
             return
 
+        # Find the first available slot
+        all_jobs = self._db_get_all_jobs()
+        used_names = {j["name"] for j in all_jobs if j["title"]}
+
         for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
-            existing_title = self.env.config.get("trac_cron_createticket", f"{prefix}.title", "")
-            if not existing_title:
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.enabled",
-                    str(enabled).lower(),
-                )
+            if prefix not in used_names:
+                self._db_save_job(prefix, {
+                    "frequency": frequency,
+                    "title": title,
+                    "owner": owner,
+                    "description": description,
+                    "component": component,
+                    "priority": priority,
+                    "status": "new",
+                })
                 self._db_set_enabled(prefix, enabled)
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.frequency",
-                    frequency,
-                )
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.title",
-                    title,
-                )
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.owner",
-                    owner,
-                )
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.description",
-                    description,
-                )
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.component",
-                    component,
-                )
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.priority",
-                    priority,
-                )
-                self.env.config.set(
-                    "trac_cron_createticket",
-                    f"{prefix}.status",
-                    "new",
-                )
-                self.env.config.save()
                 self._load_jobs()
                 return
 
     def _delete_job(self, job_index):
         prefix = f"job{job_index}"
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.enabled")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.frequency")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.title")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.owner")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.description")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.component")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.priority")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.status")
         self._db_delete_job(prefix)
-        self.env.config.save()
         self._load_jobs()
 
     def get_admin_panels(self, req):
