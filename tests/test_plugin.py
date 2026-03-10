@@ -1,5 +1,5 @@
 import pytest
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock
 from unittest.mock import Mock, MagicMock, patch
 
@@ -88,25 +88,25 @@ class TestTemplateExpansion:
     def test_expand_today_placeholder(self, plugin):
         template = "Due: [today]"
         result = plugin._expand_template(template)
-        expected = (datetime.now()).strftime("%Y-%m-%d")
+        expected = (datetime.now(timezone.utc)).strftime("%Y-%m-%d")
         assert expected in result
 
     def test_expand_tomorrow_placeholder(self, plugin):
         template = "Due: [tomorrow]"
         result = plugin._expand_template(template)
-        expected = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        expected = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
         assert expected in result
 
     def test_expand_yesterday_placeholder(self, plugin):
         template = "Started: [yesterday]"
         result = plugin._expand_template(template)
-        expected = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+        expected = (datetime.now(timezone.utc) - timedelta(days=1)).strftime("%Y-%m-%d")
         assert expected in result
 
     def test_expand_offset_placeholder(self, plugin):
         template = "Schedule: [offset:86400]"
         result = plugin._expand_template(template)
-        expected = (datetime.now() + timedelta(seconds=86400)).strftime("%Y-%m-%d")
+        expected = (datetime.now(timezone.utc) + timedelta(seconds=86400)).strftime("%Y-%m-%d")
         assert expected in result
 
 

@@ -17,7 +17,7 @@ The generated tickets can have the following fields (all support template variab
 
 ### Template Variables
 
-You can use the following placeholders in title, owner, description, and component fields:
+You can use the following placeholders in title, description, and priority fields (all times are in UTC):
 
 - `[now]` – current datetime
 - `[now_unix]` – current Unix timestamp

@@ -1,6 +1,6 @@
 import os
 import re
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from threading import Lock, Thread
 from time import sleep, time
 
@@ -299,7 +299,7 @@ class CronCreateTicketPlugin(Component):
 
     def _expand_template(self, template, base_time=None):
         if base_time is None:
-            base_time = datetime.now()
+            base_time = datetime.now(timezone.utc)
 
         now = base_time
 
@@ -331,9 +331,9 @@ class CronCreateTicketPlugin(Component):
 
     def _create_ticket(self, job):
         title = self._expand_template(job["title"])
-        owner = self._expand_template(job["owner"])
+        owner = job.get("owner", "")
         description = self._expand_template(job["description"])
-        component = self._expand_template(job["component"])
+        component = job.get("component", "")
         priority = self._expand_template(job["priority"])
         status = job.get("status", "new") or "new"
 

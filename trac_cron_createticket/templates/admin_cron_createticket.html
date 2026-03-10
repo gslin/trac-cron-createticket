@@ -21,7 +21,7 @@ ${_("Cron Create Ticket")}
           <input type="checkbox" name="ticker_enabled"${{'checked': ticker_enabled, 'empty': 'empty'}|htmlattr}/>
           Enable Scheduler
         </label>
-        <p class="hint">Enable automatic ticket creation based on schedule</p>
+        <p class="hint">Enable automatic ticket creation based on schedule. All times are in <strong>UTC</strong>.</p>
       </div>
       <div class="field">
         <label>Interval (seconds):
@@ -105,14 +105,14 @@ ${_("Cron Create Ticket")}
     <fieldset>
       <legend>Template Variables</legend>
       <div class="help">
-        <p>You can use the following placeholders in title, owner, description, and component:</p>
+        <p>You can use the following placeholders in title, description, and priority. All times are in <strong>UTC</strong>.</p>
         <ul>
-          <li><code>[now]</code> - Current datetime</li>
+          <li><code>[now]</code> - Current UTC datetime</li>
           <li><code>[now_unix]</code> - Current Unix timestamp</li>
-          <li><code>[today]</code> - Today's date (YYYY-MM-DD)</li>
-          <li><code>[tomorrow]</code> - Tomorrow's date (YYYY-MM-DD)</li>
-          <li><code>[yesterday]</code> - Yesterday's date (YYYY-MM-DD)</li>
-          <li><code>[offset:N]</code> - Date N seconds from now (e.g., [offset:86400] for tomorrow)</li>
+          <li><code>[today]</code> - Today's date in UTC (YYYY-MM-DD)</li>
+          <li><code>[tomorrow]</code> - Tomorrow's date in UTC (YYYY-MM-DD)</li>
+          <li><code>[yesterday]</code> - Yesterday's date in UTC (YYYY-MM-DD)</li>
+          <li><code>[offset:N]</code> - Date N seconds from now in UTC (e.g., [offset:86400] for tomorrow)</li>
         </ul>
       </div>
     </fieldset>
