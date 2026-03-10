@@ -109,11 +109,6 @@ class TestTemplateExpansion:
         expected = (datetime.now() + timedelta(seconds=86400)).strftime("%Y-%m-%d")
         assert expected in result
 
-    def test_expand_template_with_offset(self, plugin):
-        template = "Date: [today]"
-        base_time = datetime(2024, 1, 1, 12, 0, 0)
-        result = plugin._expand_template(template, base_time=base_time, offset=86400)
-        assert "2024-01-02" in result
 
 
 class TestDatabaseOperations:
@@ -130,7 +125,6 @@ class TestDatabaseOperations:
                 "description": "Test description",
                 "component": "",
                 "priority": "",
-                "offset": 0,
             }
             assert plugin._create_ticket(job) is True
             mock_ticket.insert.assert_called_once()
@@ -220,30 +214,6 @@ class TestJobLoading:
         plugin._load_jobs()
         assert len(plugin._jobs) == 0
 
-    def test_load_jobs_with_invalid_offset_uses_default(self, plugin, mock_env):
-        def mock_get_enabled(job_name):
-            return job_name == "job1"
-
-        def mock_get(section, option, default=""):
-            mapping = {
-                "job1.frequency": "daily",
-                "job1.title": "Daily Report",
-                "job1.owner": "admin",
-                "job1.description": "Automated report",
-                "job1.component": "Reports",
-                "job1.priority": "Normal",
-                "job1.offset": "invalid-offset",
-            }
-            return mapping.get(option, default)
-
-        plugin._db_get_enabled = Mock(side_effect=mock_get_enabled)
-        mock_env.config.get = Mock(side_effect=mock_get)
-        plugin._db_get_last_run = Mock(return_value=0)
-
-        plugin._load_jobs()
-        assert len(plugin._jobs) == 1
-        assert plugin._jobs[0]["offset"] == 0
-        assert plugin._jobs[0]["last_run"] == 0
 
 
 class TestComponentsAndPriorities:
@@ -290,7 +260,6 @@ class TestFormHandling:
             "description_1": "Auto ticket",
             "component_1": "Reports",
             "priority_1": "Normal",
-            "offset_1": "0",
         }
         plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
@@ -314,7 +283,6 @@ class TestFormHandling:
             "new_description": "Auto ticket",
             "new_component": "Reports",
             "new_priority": "Normal",
-            "new_offset": "0",
         }
         plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
@@ -325,7 +293,7 @@ class TestFormHandling:
         mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.enabled", "false")
         plugin._db_set_enabled.assert_called_once_with("job1", False)
 
-    def test_save_jobs_from_form_invalid_integers_are_sanitized(self, plugin, mock_env):
+    def test_save_jobs_from_form_invalid_interval_uses_default(self, plugin, mock_env):
         req = Mock()
         req.args = {
             "ticker_interval": "invalid-interval",
@@ -336,7 +304,6 @@ class TestFormHandling:
             "description_1": "Auto ticket",
             "component_1": "Reports",
             "priority_1": "Normal",
-            "offset_1": "invalid-offset",
         }
         plugin._db_get_enabled = Mock(return_value=False)
         plugin._db_get_last_run = Mock(return_value=0)
@@ -345,27 +312,6 @@ class TestFormHandling:
         plugin._save_jobs_from_form(req)
 
         mock_env.config.set.assert_any_call("trac_cron_createticket", "ticker_interval", "60")
-        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.offset", "0")
-
-    def test_create_job_from_form_invalid_offset_uses_zero(self, plugin, mock_env):
-        req = Mock()
-        req.args = {
-            "new_enabled": "true",
-            "new_frequency": "daily",
-            "new_title": "Create Daily Report",
-            "new_owner": "admin",
-            "new_description": "Auto ticket",
-            "new_component": "Reports",
-            "new_priority": "Normal",
-            "new_offset": "invalid-offset",
-        }
-        plugin._db_get_enabled = Mock(return_value=False)
-        plugin._db_get_last_run = Mock(return_value=0)
-        plugin._db_set_enabled = Mock()
-
-        plugin._create_job_from_form(req)
-
-        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.offset", "0")
 
 
 class TestScheduler:
@@ -382,7 +328,6 @@ class TestScheduler:
                 "component": "",
                 "priority": "",
                 "status": "new",
-                "offset": 0,
                 "last_run": 0,
             }
         ]
@@ -414,7 +359,6 @@ class TestScheduler:
                 "component": "",
                 "priority": "",
                 "status": "new",
-                "offset": 0,
                 "last_run": 1,
             }
         ]
@@ -445,7 +389,6 @@ class TestScheduler:
                 "component": "",
                 "priority": "",
                 "status": "new",
-                "offset": 0,
                 "last_run": 1,
             }
         ]
@@ -476,7 +419,6 @@ class TestScheduler:
                 "component": "",
                 "priority": "",
                 "status": "new",
-                "offset": 0,
                 "last_run": 1,
             }
         ]

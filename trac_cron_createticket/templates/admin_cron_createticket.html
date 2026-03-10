@@ -40,10 +40,10 @@ ${_("Cron Create Ticket")}
             <th>Enabled</th>
             <th>Frequency</th>
             <th>Title</th>
+            <th>Description</th>
             <th>Owner</th>
             <th>Component</th>
             <th>Priority</th>
-            <th>Offset (seconds)</th>
             <th>Actions</th>
           </tr>
         </thead>
@@ -72,6 +72,9 @@ ${_("Cron Create Ticket")}
                      placeholder="[now] Ticket for [today]"/>
             </td>
             <td>
+              <textarea name="description_${job.index}" rows="2" cols="30" class="trac-resizable">${job.description}</textarea>
+            </td>
+            <td>
               <input type="text" name="owner_${job.index}" value="${job.owner}" size="15"/>
             </td>
             <td>
@@ -89,10 +92,6 @@ ${_("Cron Create Ticket")}
                 <option value="${pri}"${{'selected': job.priority == pri, 'empty': 'empty'}|htmlattr}>${pri}</option>
                 # endfor
               </select>
-            </td>
-            <td>
-              <input type="text" name="offset_${job.index}" value="${job.offset}" size="8"
-                     placeholder="0"/>
             </td>
             <td>
               <button type="submit" name="action" value="delete_job_${job.index}">Delete</button>
@@ -184,10 +183,6 @@ ${_("Cron Create Ticket")}
             # endfor
           </select>
         </td>
-      </tr>
-      <tr>
-        <td><label>Offset (seconds):</label></td>
-        <td><input type="text" name="new_offset" value="0" size="8"/></td>
       </tr>
     </table>
     <div class="buttons">

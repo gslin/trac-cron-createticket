@@ -95,7 +95,6 @@ job1.owner = admin
 job1.description = This ticket is generated automatically each day.
 job1.component = System
 job1.priority = normal
-job1.offset = 0
 ```
 
 ## Permissions
