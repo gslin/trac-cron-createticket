@@ -13,7 +13,7 @@ from trac.env import IEnvironmentSetupParticipant
 from trac.perm import IPermissionPolicy, IPermissionRequestor, PermissionSystem
 from trac.ticket import Ticket
 from trac.util.html import html
-from trac.web.chrome import INavigationContributor, ITemplateProvider
+from trac.web.chrome import Chrome, INavigationContributor, ITemplateProvider
 
 MAX_JOBS = 10
 DB_VERSION = 4
@@ -649,6 +649,8 @@ class CronCreateTicketPlugin(Component):
     # -- Admin panel --
 
     def _render_admin_page(self, req):
+        Chrome(self.env).add_wiki_toolbars(req)
+
         data = {}
         data['presets'] = [
             ('hourly', 'Hourly'),
