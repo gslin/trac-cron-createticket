@@ -49,10 +49,25 @@ You can use the following placeholders in title, owner, description, and compone
    trac_cron_createticket = enabled
    ```
 
-5. **Restart Trac** (or reload plugins via `trac-admin`)
+5. **Run the Trac upgrade** (creates the required database table)
    ```bash
-   trac-admin /path/to/trac_env plugin reload
+   trac-admin /path/to/trac_env upgrade
    ```
+
+6. **Restart Trac** to load the plugin. The method depends on your deployment:
+   - **tracd**: restart the `tracd` process
+   - **Apache + mod_wsgi**: `systemctl restart apache2` (or `apachectl restart`)
+   - **FastCGI / uWSGI**: restart the corresponding application process
+
+## Upgrading
+
+If you are upgrading from a previous version, run the database upgrade after installing the new version:
+
+```bash
+trac-admin /path/to/trac_env upgrade
+```
+
+This creates the `cron_createticket_jobs` table and migrates job state from `trac.ini` to the database. The migration is required for cross-process locking to prevent duplicate ticket creation in multi-process environments (e.g. FastCGI).
 
 ## Configuration
 

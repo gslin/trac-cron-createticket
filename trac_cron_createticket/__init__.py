@@ -1,6 +1,7 @@
+import os
 import re
 from datetime import datetime, timedelta
-from threading import Thread
+from threading import Lock, Thread
 from time import sleep, time
 
 from croniter import croniter
@@ -12,15 +13,16 @@ from trac.env import IEnvironmentSetupParticipant
 from trac.perm import IPermissionPolicy, IPermissionRequestor
 from trac.ticket import Ticket
 from trac.util.html import html
-from trac.web import IRequestHandler
 from trac.web.chrome import INavigationContributor, ITemplateProvider
+
+MAX_JOBS = 10
+DB_VERSION = 2
 
 
 class CronCreateTicketPlugin(Component):
     implements(
         IEnvironmentSetupParticipant,
         INavigationContributor,
-        IRequestHandler,
         ITemplateProvider,
         IAdminPanelProvider,
         IPermissionRequestor,
@@ -54,10 +56,142 @@ class CronCreateTicketPlugin(Component):
         self._ticker_thread = None
         self._stop_ticker = False
         self._jobs = []
+        self._lock = Lock()
+
+    # -- DB schema & migration --
+
+    def _create_job_state_table(self):
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "CREATE TABLE IF NOT EXISTS cron_createticket_jobs ("
+                "  job_name TEXT PRIMARY KEY,"
+                "  last_run INTEGER NOT NULL DEFAULT 0"
+                ")"
+            )
+
+    def _migrate_last_run_to_db(self):
+        """Migrate last_run values from trac.ini config to the DB table."""
+        for i in range(1, MAX_JOBS + 1):
+            prefix = f"job{i}"
+            config_key = f"{prefix}.last_run"
+            value = self.env.config.get("trac_cron_createticket", config_key, "")
+            if value:
+                last_run = self._safe_int(value, default=0, minimum=0, field_name=config_key)
+                if last_run > 0:
+                    self._db_upsert_last_run(prefix, last_run)
+                self.env.config.remove("trac_cron_createticket", config_key)
+        self.env.config.save()
+
+    def _upgrade_db(self):
+        db_version = self.env.config.getint("trac_cron_createticket", "db_version", 0)
+
+        if db_version < 1:
+            self.env.config.set("trac_cron_createticket", "db_version", str(DB_VERSION))
+            self._create_job_state_table()
+            self.env.config.save()
+            return
+
+        if db_version < 2:
+            self._create_job_state_table()
+            self._migrate_last_run_to_db()
+            self.env.config.set("trac_cron_createticket", "db_version", str(DB_VERSION))
+            self.env.config.save()
+
+    def _init_db(self):
+        self._upgrade_db()
+
+    def environment_created(self):
+        self._init_db()
+
+    def environment_needs_upgrade(self, db=None):
+        db_version = self.env.config.getint("trac_cron_createticket", "db_version", 0)
+        return db_version < DB_VERSION
+
+    def upgrade_environment(self, db=None):
+        self._init_db()
+
+    # -- DB operations for job state --
+
+    def _db_get_last_run(self, job_name):
+        """Read last_run from the DB for a given job."""
+        with self.env.db_query as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT last_run FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            row = cursor.fetchone()
+            return row[0] if row else 0
+
+    def _db_upsert_last_run(self, job_name, last_run):
+        """Insert or update last_run for a job (used during migration and init)."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT 1 FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            if cursor.fetchone():
+                cursor.execute(
+                    "UPDATE cron_createticket_jobs SET last_run=%s WHERE job_name=%s",
+                    (int(last_run), job_name),
+                )
+            else:
+                cursor.execute(
+                    "INSERT INTO cron_createticket_jobs (job_name, last_run) VALUES (%s, %s)",
+                    (job_name, int(last_run)),
+                )
+
+    def _db_try_claim_job(self, job_name, expected_last_run, new_last_run):
+        """Atomically try to claim a job execution via compare-and-swap.
+
+        Returns True if this process successfully claimed the job (i.e., the
+        UPDATE matched a row), False if another process already claimed it.
+        """
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "UPDATE cron_createticket_jobs SET last_run=%s "
+                "WHERE job_name=%s AND last_run=%s",
+                (int(new_last_run), job_name, int(expected_last_run)),
+            )
+            return cursor.rowcount > 0
+
+    def _db_init_job(self, job_name, last_run):
+        """Initialize a job's last_run in DB if it doesn't exist yet.
+
+        Returns True if the row was inserted (first time), False if it
+        already existed (another process initialized it first).
+        """
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "SELECT 1 FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+            if cursor.fetchone():
+                return False
+            cursor.execute(
+                "INSERT INTO cron_createticket_jobs (job_name, last_run) VALUES (%s, %s)",
+                (job_name, int(last_run)),
+            )
+            return True
+
+    def _db_delete_job(self, job_name):
+        """Remove a job's state from the DB."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            cursor.execute(
+                "DELETE FROM cron_createticket_jobs WHERE job_name=%s",
+                (job_name,),
+            )
+
+    # -- Job loading --
 
     def _load_jobs(self):
         jobs = []
-        for i in range(1, 100):
+        for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
             enabled = self.env.config.getbool("trac_cron_createticket", f"{prefix}.enabled", False)
             if not enabled:
@@ -87,11 +221,12 @@ class CronCreateTicketPlugin(Component):
                     "priority": priority,
                     "status": status,
                     "offset": offset,
-                    "last_run": self._get_config_int(f"{prefix}.last_run", default=0, minimum=0),
+                    "last_run": self._db_get_last_run(prefix),
                 }
             )
 
-        self._jobs = jobs
+        with self._lock:
+            self._jobs = jobs
 
     def _get_cron_expression(self, frequency):
         if not frequency:
@@ -107,6 +242,8 @@ class CronCreateTicketPlugin(Component):
             pass
 
         return None
+
+    # -- Template expansion --
 
     def _expand_template(self, template, base_time=None, offset=0):
         if base_time is None:
@@ -141,6 +278,8 @@ class CronCreateTicketPlugin(Component):
 
         return template
 
+    # -- Ticket creation --
+
     def _create_ticket(self, job):
         offset = job.get("offset", 0)
         title = self._expand_template(job["title"], offset=offset)
@@ -171,28 +310,45 @@ class CronCreateTicketPlugin(Component):
             self.env.log.error(f"Failed to create ticket: {e}")
             return False
 
+    # -- Scheduler --
+
     def _run_scheduler(self):
         self.env.log.info("CronCreateTicket scheduler started")
         while not self._stop_ticker:
             self._load_jobs()
             current_time = time()
 
-            for job in self._jobs:
+            with self._lock:
+                jobs_snapshot = list(self._jobs)
+
+            for job in jobs_snapshot:
                 try:
                     if job["last_run"] == 0:
-                        job["last_run"] = int(current_time)
-                        self._set_job_last_run(job["name"], job["last_run"])
-                        self.env.config.save()
+                        # First time seeing this job: initialize its last_run
+                        # in DB. If another process already did this,
+                        # _db_init_job returns False and we skip.
+                        init_time = int(current_time)
+                        self._db_init_job(job["name"], init_time)
                         continue
 
                     cron = croniter(job["cron"], current_time)
                     due_run = int(cron.get_prev())
                     if due_run > job["last_run"]:
+                        # Try to atomically claim this job execution.
+                        # Only one process will succeed.
+                        if not self._db_try_claim_job(job["name"], job["last_run"], due_run):
+                            self.env.log.debug(
+                                f"Job {job['name']} already claimed by another process"
+                            )
+                            continue
+
                         self.env.log.info(f"Creating ticket for job {job['name']}: {job['title']}")
                         if self._create_ticket(job):
-                            job["last_run"] = due_run
-                            self._set_job_last_run(job["name"], job["last_run"])
-                            self.env.config.save()
+                            self.env.log.info(f"Ticket created for job {job['name']}")
+                        else:
+                            # Ticket creation failed; revert last_run so it
+                            # can be retried on the next cycle.
+                            self._db_try_claim_job(job["name"], due_run, job["last_run"])
                 except Exception as e:
                     self.env.log.error(f"Error processing job {job['name']}: {e}")
 
@@ -216,45 +372,28 @@ class CronCreateTicketPlugin(Component):
         else:
             self._stop_ticker_thread()
 
-    def _get_db_schema(self):
-        return {"version": 1, "tables": {}}
-
-    def _upgrade_db(self):
-        db_version = self.env.config.getint("trac_cron_createticket", "db_version", 0)
-        if db_version < 1:
-            self.env.config.set("trac_cron_createticket", "db_version", "1")
-            self.env.config.save()
-
-    def _init_db(self):
-        self._upgrade_db()
-
-    def environment_created(self):
-        self._init_db()
-
-    def environment_needs_upgrade(self, db=None):
-        return False
-
-    def upgrade_environment(self, db=None):
-        self._init_db()
+    # -- Lifecycle --
 
     def initialize(self):
         self._init_db()
-        if self.ticker_enabled:
-            self._start_ticker()
+        self._ensure_ticker_state()
 
     def shutdown(self):
         self._stop_ticker_thread()
+
+    # -- Navigation --
 
     def get_active_navigation_item(self, req):
         return "trac_cron_createticket"
 
     def get_navigation_items(self, req):
-        self._ensure_ticker_state()
         yield (
             "mainnav",
             "trac_cron_createticket",
             html.a("Cron Create Ticket", href=self.env.href.admin("trac_cron_createticket")),
         )
+
+    # -- Permissions --
 
     def get_permission_actions(self):
         return [
@@ -263,17 +402,15 @@ class CronCreateTicketPlugin(Component):
         ]
 
     def check_permission(self, action, username, resource, perm):
-        if action in ("TRAC_CRON_CREATE_TICKET_ADMIN", "TRAC_CRON_CREATE_TICKET_VIEW"):
-            if action == "TRAC_CRON_CREATE_TICKET_ADMIN":
-                if perm.has_permission("TRAC_ADMIN"):
-                    return True
-            if action == "TRAC_CRON_CREATE_TICKET_VIEW":
-                if perm.has_permission("TRAC_ADMIN") or perm.has_permission("TICKET_VIEW"):
-                    return True
+        if action == "TRAC_CRON_CREATE_TICKET_ADMIN":
+            if "TRAC_ADMIN" in perm:
+                return True
+        elif action == "TRAC_CRON_CREATE_TICKET_VIEW":
+            if "TRAC_ADMIN" in perm or "TICKET_VIEW" in perm:
+                return True
         return None
 
-    def match_request(self, req):
-        return req.path_info.startswith("/admin/trac_cron_createticket")
+    # -- Admin panel --
 
     def _render_admin_page(self, req):
         data = {}
@@ -286,9 +423,8 @@ class CronCreateTicketPlugin(Component):
             ("yearly", "Yearly"),
         ]
 
-        max_jobs = 10
         jobs = []
-        for i in range(1, max_jobs + 1):
+        for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
             job = {
                 "index": i,
@@ -299,6 +435,7 @@ class CronCreateTicketPlugin(Component):
                 "description": self.env.config.get("trac_cron_createticket", f"{prefix}.description", ""),
                 "component": self.env.config.get("trac_cron_createticket", f"{prefix}.component", ""),
                 "priority": self.env.config.get("trac_cron_createticket", f"{prefix}.priority", ""),
+                "status": self.env.config.get("trac_cron_createticket", f"{prefix}.status", "new"),
                 "offset": self._get_config_int(f"{prefix}.offset", default=0, minimum=0),
             }
             has_data = any(
@@ -337,6 +474,8 @@ class CronCreateTicketPlugin(Component):
             cursor.execute("SELECT name FROM enum WHERE type='priority' ORDER BY value")
             return [row[0] for row in cursor.fetchall()]
 
+    # -- Utility --
+
     def _safe_int(self, value, default=0, minimum=None, field_name="value"):
         try:
             parsed = int(value)
@@ -362,13 +501,6 @@ class CronCreateTicketPlugin(Component):
     def _get_ticker_interval(self):
         return self._get_config_int("ticker_interval", default=60, minimum=1)
 
-    def _set_job_last_run(self, job_name, last_run):
-        self.env.config.set(
-            "trac_cron_createticket",
-            f"{job_name}.last_run",
-            str(int(last_run)),
-        )
-
     def _is_checked(self, req, field_name):
         value = req.args.get(field_name)
         if value is None:
@@ -376,6 +508,8 @@ class CronCreateTicketPlugin(Component):
         if isinstance(value, str):
             return value.strip().lower() not in ("", "0", "false", "off", "no")
         return bool(value)
+
+    # -- Form handlers --
 
     def _save_jobs_from_form(self, req):
         current_interval = self._get_ticker_interval()
@@ -392,8 +526,7 @@ class CronCreateTicketPlugin(Component):
             str(ticker_interval),
         )
 
-        max_jobs = 10
-        for i in range(1, max_jobs + 1):
+        for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
             self.env.config.set(
                 "trac_cron_createticket",
@@ -474,8 +607,7 @@ class CronCreateTicketPlugin(Component):
         if not title:
             return
 
-        max_jobs = 10
-        for i in range(1, max_jobs + 1):
+        for i in range(1, MAX_JOBS + 1):
             prefix = f"job{i}"
             existing_title = self.env.config.get("trac_cron_createticket", f"{prefix}.title", "")
             if not existing_title:
@@ -539,7 +671,7 @@ class CronCreateTicketPlugin(Component):
         self.env.config.remove("trac_cron_createticket", f"{prefix}.priority")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.status")
         self.env.config.remove("trac_cron_createticket", f"{prefix}.offset")
-        self.env.config.remove("trac_cron_createticket", f"{prefix}.last_run")
+        self._db_delete_job(prefix)
         self.env.config.save()
         self._load_jobs()
 
@@ -568,7 +700,7 @@ class CronCreateTicketPlugin(Component):
                     minimum=1,
                     field_name="delete_job_index",
                 )
-                if 1 <= job_index <= 10:
+                if 1 <= job_index <= MAX_JOBS:
                     self._delete_job(job_index)
                 else:
                     self.env.log.warning(f"Ignoring invalid delete action: {action!r}")
@@ -576,10 +708,7 @@ class CronCreateTicketPlugin(Component):
         return self._render_admin_page(req)
 
     def get_templates_dirs(self):
-        from trac_cron_createticket import __file__ as module_path
-        import os
-
-        return [os.path.join(os.path.dirname(module_path), "templates")]
+        return [os.path.join(os.path.dirname(__file__), "templates")]
 
     def get_htdocs_dirs(self):
         return []

@@ -1,9 +1,21 @@
 import pytest
 from datetime import datetime, timedelta
+from threading import Lock
 from unittest.mock import Mock, MagicMock, patch
 
 from trac.env import Environment
 from trac_cron_createticket import CronCreateTicketPlugin
+
+
+def _make_mock_db(query_rows=None):
+    """Create a mock DB connection with cursor support."""
+    mock_db = MagicMock()
+    mock_cursor = Mock()
+    mock_cursor.fetchone = Mock(return_value=query_rows[0] if query_rows else None)
+    mock_cursor.fetchall = Mock(return_value=query_rows if query_rows else [])
+    mock_cursor.rowcount = 0
+    mock_db.cursor = Mock(return_value=mock_cursor)
+    return mock_db, mock_cursor
 
 
 @pytest.fixture
@@ -15,6 +27,7 @@ def mock_env():
     env.config.getint = Mock(return_value=0)
     env.config.set = Mock()
     env.config.save = Mock()
+    env.config.remove = Mock()
     env.log = Mock()
     env.href = Mock()
     env.href.admin = Mock(return_value="/admin/endpoint")
@@ -34,6 +47,7 @@ def plugin(mock_env):
     plugin._jobs = []
     plugin._stop_ticker = False
     plugin._ticker_thread = None
+    plugin._lock = Lock()
     return plugin
 
 
@@ -159,6 +173,7 @@ class TestDatabaseOperations:
 class TestJobLoading:
     def test_load_jobs_empty_config(self, plugin, mock_env):
         mock_env.config.getbool = Mock(return_value=False)
+        plugin._db_get_last_run = Mock(return_value=0)
         plugin._load_jobs()
         assert plugin._jobs == []
 
@@ -182,13 +197,14 @@ class TestJobLoading:
 
         mock_env.config.getbool = Mock(side_effect=mock_get_bool)
         mock_env.config.get = Mock(side_effect=mock_get)
-        mock_env.config.getint = Mock(return_value=0)
+        plugin._db_get_last_run = Mock(return_value=1000000)
 
         plugin._load_jobs()
         assert len(plugin._jobs) == 1
         assert plugin._jobs[0]["name"] == "job1"
         assert plugin._jobs[0]["title"] == "Daily Report"
         assert plugin._jobs[0]["owner"] == "admin"
+        assert plugin._jobs[0]["last_run"] == 1000000
 
     def test_load_jobs_with_invalid_frequency(self, plugin, mock_env):
 
@@ -223,12 +239,12 @@ class TestJobLoading:
                 "job1.component": "Reports",
                 "job1.priority": "Normal",
                 "job1.offset": "invalid-offset",
-                "job1.last_run": "invalid-last-run",
             }
             return mapping.get(option, default)
 
         mock_env.config.getbool = Mock(side_effect=mock_get_bool)
         mock_env.config.get = Mock(side_effect=mock_get)
+        plugin._db_get_last_run = Mock(return_value=0)
 
         plugin._load_jobs()
         assert len(plugin._jobs) == 1
@@ -282,6 +298,7 @@ class TestFormHandling:
             "priority_1": "Normal",
             "offset_1": "0",
         }
+        plugin._db_get_last_run = Mock(return_value=0)
 
         plugin._save_jobs_from_form(req)
 
@@ -302,6 +319,7 @@ class TestFormHandling:
             "new_priority": "Normal",
             "new_offset": "0",
         }
+        plugin._db_get_last_run = Mock(return_value=0)
 
         plugin._create_job_from_form(req)
 
@@ -320,6 +338,7 @@ class TestFormHandling:
             "priority_1": "Normal",
             "offset_1": "invalid-offset",
         }
+        plugin._db_get_last_run = Mock(return_value=0)
 
         plugin._save_jobs_from_form(req)
 
@@ -338,6 +357,7 @@ class TestFormHandling:
             "new_priority": "Normal",
             "new_offset": "invalid-offset",
         }
+        plugin._db_get_last_run = Mock(return_value=0)
 
         plugin._create_job_from_form(req)
 
@@ -364,6 +384,7 @@ class TestScheduler:
         ]
         plugin._load_jobs = Mock()
         plugin._create_ticket = Mock(return_value=True)
+        plugin._db_init_job = Mock(return_value=True)
 
         def stop_after_sleep(_interval):
             plugin._stop_ticker = True
@@ -373,11 +394,74 @@ class TestScheduler:
         plugin._run_scheduler()
 
         plugin._create_ticket.assert_not_called()
-        mock_env.config.set.assert_any_call("trac_cron_createticket", "job1.last_run", "2000000")
+        plugin._db_init_job.assert_called_once_with("job1", 2000000)
 
     @patch("trac_cron_createticket.sleep")
     @patch("trac_cron_createticket.time", return_value=2000000)
-    def test_run_scheduler_does_not_update_last_run_on_create_failure(self, _mock_time, mock_sleep, plugin, mock_env):
+    def test_run_scheduler_does_not_create_ticket_when_claim_fails(self, _mock_time, mock_sleep, plugin, mock_env):
+        """Another process already claimed this job execution."""
+        plugin._jobs = [
+            {
+                "name": "job1",
+                "cron": "0 * * * *",
+                "title": "Hourly Report",
+                "owner": "admin",
+                "description": "",
+                "component": "",
+                "priority": "",
+                "status": "new",
+                "offset": 0,
+                "last_run": 1,
+            }
+        ]
+        plugin._load_jobs = Mock()
+        plugin._create_ticket = Mock(return_value=True)
+        plugin._db_try_claim_job = Mock(return_value=False)
+
+        def stop_after_sleep(_interval):
+            plugin._stop_ticker = True
+
+        mock_sleep.side_effect = stop_after_sleep
+        plugin._stop_ticker = False
+        plugin._run_scheduler()
+
+        plugin._db_try_claim_job.assert_called_once()
+        plugin._create_ticket.assert_not_called()
+
+    @patch("trac_cron_createticket.sleep")
+    @patch("trac_cron_createticket.time", return_value=2000000)
+    def test_run_scheduler_creates_ticket_when_claim_succeeds(self, _mock_time, mock_sleep, plugin, mock_env):
+        plugin._jobs = [
+            {
+                "name": "job1",
+                "cron": "0 * * * *",
+                "title": "Hourly Report",
+                "owner": "admin",
+                "description": "",
+                "component": "",
+                "priority": "",
+                "status": "new",
+                "offset": 0,
+                "last_run": 1,
+            }
+        ]
+        plugin._load_jobs = Mock()
+        plugin._create_ticket = Mock(return_value=True)
+        plugin._db_try_claim_job = Mock(return_value=True)
+
+        def stop_after_sleep(_interval):
+            plugin._stop_ticker = True
+
+        mock_sleep.side_effect = stop_after_sleep
+        plugin._stop_ticker = False
+        plugin._run_scheduler()
+
+        plugin._db_try_claim_job.assert_called_once()
+        plugin._create_ticket.assert_called_once()
+
+    @patch("trac_cron_createticket.sleep")
+    @patch("trac_cron_createticket.time", return_value=2000000)
+    def test_run_scheduler_reverts_claim_on_create_failure(self, _mock_time, mock_sleep, plugin, mock_env):
         plugin._jobs = [
             {
                 "name": "job1",
@@ -394,6 +478,7 @@ class TestScheduler:
         ]
         plugin._load_jobs = Mock()
         plugin._create_ticket = Mock(return_value=False)
+        plugin._db_try_claim_job = Mock(return_value=True)
 
         def stop_after_sleep(_interval):
             plugin._stop_ticker = True
@@ -403,14 +488,74 @@ class TestScheduler:
         plugin._run_scheduler()
 
         plugin._create_ticket.assert_called_once()
-        assert not any(call.args[1] == "job1.last_run" for call in mock_env.config.set.call_args_list)
+        # First call: claim (old_last_run -> due_run)
+        # Second call: revert (due_run -> old_last_run)
+        assert plugin._db_try_claim_job.call_count == 2
+        revert_call = plugin._db_try_claim_job.call_args_list[1]
+        # Revert should swap back: (job_name, due_run, old_last_run)
+        assert revert_call.args[0] == "job1"
+        assert revert_call.args[2] == 1  # original last_run
+
+
+class TestDbJobState:
+    def test_db_try_claim_job_succeeds(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_cursor.rowcount = 1
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        result = plugin._db_try_claim_job("job1", 1000, 2000)
+        assert result is True
+        mock_cursor.execute.assert_called_once()
+
+    def test_db_try_claim_job_fails_when_already_claimed(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_cursor.rowcount = 0
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        result = plugin._db_try_claim_job("job1", 1000, 2000)
+        assert result is False
+
+    def test_db_init_job_inserts_when_new(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_cursor.fetchone = Mock(return_value=None)
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        result = plugin._db_init_job("job1", 2000000)
+        assert result is True
+        assert mock_cursor.execute.call_count == 2  # SELECT + INSERT
+
+    def test_db_init_job_skips_when_exists(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_cursor.fetchone = Mock(return_value=(1,))
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        result = plugin._db_init_job("job1", 2000000)
+        assert result is False
+        assert mock_cursor.execute.call_count == 1  # Only SELECT
+
+    def test_db_delete_job(self, plugin, mock_env):
+        mock_db, mock_cursor = _make_mock_db()
+        mock_env.db_transaction.__enter__ = Mock(return_value=mock_db)
+        mock_env.db_transaction.__exit__ = Mock(return_value=False)
+
+        plugin._db_delete_job("job1")
+        mock_cursor.execute.assert_called_once()
+        assert "DELETE" in mock_cursor.execute.call_args.args[0]
 
 
 class TestAdminPanelActions:
-    def test_delete_job_removes_last_run(self, plugin, mock_env):
+    def test_delete_job_cleans_db_state(self, plugin, mock_env):
+        plugin._db_delete_job = Mock()
+        plugin._db_get_last_run = Mock(return_value=0)
+
         plugin._delete_job(1)
 
-        mock_env.config.remove.assert_any_call("trac_cron_createticket", "job1.last_run")
+        plugin._db_delete_job.assert_called_once_with("job1")
+        mock_env.config.remove.assert_any_call("trac_cron_createticket", "job1.enabled")
 
     def test_render_admin_panel_ignores_invalid_delete_action(self, plugin):
         req = Mock()
@@ -429,3 +574,17 @@ class TestAdminPanelActions:
         plugin._delete_job.assert_not_called()
         req.redirect.assert_called_once_with("/admin/endpoint")
         assert result == ("template.html", {})
+
+
+class TestDbUpgrade:
+    def test_environment_needs_upgrade_when_version_0(self, plugin, mock_env):
+        mock_env.config.getint = Mock(return_value=0)
+        assert plugin.environment_needs_upgrade() is True
+
+    def test_environment_needs_upgrade_when_version_1(self, plugin, mock_env):
+        mock_env.config.getint = Mock(return_value=1)
+        assert plugin.environment_needs_upgrade() is True
+
+    def test_environment_no_upgrade_when_current(self, plugin, mock_env):
+        mock_env.config.getint = Mock(return_value=2)
+        assert plugin.environment_needs_upgrade() is False
