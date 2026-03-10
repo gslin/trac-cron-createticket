@@ -13,7 +13,6 @@ ${_("Cron Create Ticket")}
 <div class="plugin">
   <form class="mod" id="modcroncreateticket" method="post">
     ${jmacros.form_token_input()}
-    <input type="hidden" name="action" value="save_jobs"/>
 
     <fieldset>
       <legend>Scheduler Settings</legend>
@@ -120,7 +119,7 @@ ${_("Cron Create Ticket")}
     </fieldset>
 
     <div class="buttons">
-      <input type="submit" value="${_('Save Configuration')}"/>
+      <button type="submit" name="action" value="save_jobs">${_('Save Configuration')}</button>
     </div>
   </form>
 
