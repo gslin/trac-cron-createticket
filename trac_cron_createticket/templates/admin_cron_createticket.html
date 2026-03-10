@@ -33,73 +33,67 @@ ${_("Cron Create Ticket")}
 
     <fieldset>
       <legend>Scheduled Jobs</legend>
-      <table class="listing" id="jobs_table">
-        <thead>
-          <tr>
-            <th>#</th>
-            <th>Enabled</th>
-            <th>Frequency</th>
-            <th>Title</th>
-            <th>Description</th>
-            <th>Owner</th>
-            <th>Component</th>
-            <th>Priority</th>
-            <th>Actions</th>
-          </tr>
-        </thead>
-        <tbody>
-          # for job in jobs:
-          <tr>
-            <td>${job.index}</td>
-            <td>
-              <input type="checkbox" name="enabled_${job.index}"${{'checked': job.enabled, 'empty': 'empty'}|htmlattr}/>
-            </td>
-            <td>
-              <select name="frequency_${job.index}" id="frequency_${job.index}">
-                <option value="">-- Select --</option>
-                # for preset in presets:
-                <option value="${preset[0]}"${{'selected': job.frequency == preset[0], 'empty': 'empty'}|htmlattr}>${preset[1]}</option>
-                # endfor
-                # set is_custom = job.frequency and job.frequency not in presets|map(attribute='0')
-                <option value="custom"${{'selected': is_custom, 'empty': 'empty'}|htmlattr}>Custom (cron)</option>
-              </select>
-              # if is_custom:
-              <input type="text" name="frequency_custom_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
-              # endif
-            </td>
-            <td>
-              <input type="text" name="title_${job.index}" value="${job.title}" size="30"
-                     placeholder="[now] Ticket for [today]"/>
-            </td>
-            <td>
-              <textarea name="description_${job.index}" rows="2" cols="30" class="trac-resizable">${job.description}</textarea>
-            </td>
-            <td>
-              <input type="text" name="owner_${job.index}" value="${job.owner}" size="15"/>
-            </td>
-            <td>
-              <select name="component_${job.index}">
-                <option value="">-- None --</option>
-                # for comp in components:
-                <option value="${comp}"${{'selected': job.component == comp, 'empty': 'empty'}|htmlattr}>${comp}</option>
-                # endfor
-              </select>
-            </td>
-            <td>
-              <select name="priority_${job.index}">
-                <option value="">-- Default --</option>
-                # for pri in priorities:
-                <option value="${pri}"${{'selected': job.priority == pri, 'empty': 'empty'}|htmlattr}>${pri}</option>
-                # endfor
-              </select>
-            </td>
-            <td>
-              <button type="submit" name="action" value="delete_job_${job.index}">Delete</button>
-            </td>
-          </tr>
-          # endfor
-        </tbody>
-      </table>
+      # for job in jobs:
+      <div class="job-card">
+        <div class="job-header">
+          <span class="job-number">#${job.index}</span>
+          <label class="job-enabled">
+            <input type="checkbox" name="enabled_${job.index}"${{'checked': job.enabled, 'empty': 'empty'}|htmlattr}/>
+            Enabled
+          </label>
+          <button type="submit" name="action" value="delete_job_${job.index}" class="job-delete">Delete</button>
+        </div>
+        <div class="job-fields">
+          <div class="job-field">
+            <label>Frequency</label>
+            <select name="frequency_${job.index}" id="frequency_${job.index}">
+              <option value="">-- Select --</option>
+              # for preset in presets:
+              <option value="${preset[0]}"${{'selected': job.frequency == preset[0], 'empty': 'empty'}|htmlattr}>${preset[1]}</option>
+              # endfor
+              # set is_custom = job.frequency and job.frequency not in presets|map(attribute='0')
+              <option value="custom"${{'selected': is_custom, 'empty': 'empty'}|htmlattr}>Custom (cron)</option>
+            </select>
+            # if is_custom:
+            <input type="text" name="frequency_custom_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
+            # endif
+          </div>
+          <div class="job-field">
+            <label>Title</label>
+            <input type="text" name="title_${job.index}" value="${job.title}" placeholder="[now] Ticket for [today]"/>
+          </div>
+          <div class="job-field">
+            <label>Owner</label>
+            <input type="text" name="owner_${job.index}" value="${job.owner}"/>
+          </div>
+          <div class="job-field">
+            <label>Component</label>
+            <select name="component_${job.index}">
+              <option value="">-- None --</option>
+              # for comp in components:
+              <option value="${comp}"${{'selected': job.component == comp, 'empty': 'empty'}|htmlattr}>${comp}</option>
+              # endfor
+            </select>
+          </div>
+          <div class="job-field">
+            <label>Priority</label>
+            <select name="priority_${job.index}">
+              <option value="">-- Default --</option>
+              # for pri in priorities:
+              <option value="${pri}"${{'selected': job.priority == pri, 'empty': 'empty'}|htmlattr}>${pri}</option>
+              # endfor
+            </select>
+          </div>
+          <div class="job-field job-field-wide">
+            <label>Description</label>
+            <textarea name="description_${job.index}" rows="2" class="trac-resizable">${job.description}</textarea>
+          </div>
+        </div>
+      </div>
+      # endfor
+      # if not jobs:
+      <p class="help">No scheduled jobs configured yet. Use the form below to create one.</p>
+      # endif
     </fieldset>
 
     <fieldset>
@@ -194,6 +188,55 @@ ${_("Cron Create Ticket")}
 
 # block head
 ${ super() }
+<style>
+.job-card {
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  padding: 10px 12px;
+  margin-bottom: 10px;
+  background: #fafafa;
+}
+.job-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 8px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid #e0e0e0;
+}
+.job-number {
+  font-weight: bold;
+  font-size: 1.1em;
+  color: #555;
+}
+.job-enabled {
+  font-weight: normal;
+}
+.job-delete {
+  margin-left: auto;
+}
+.job-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  gap: 8px 16px;
+}
+.job-field label {
+  display: block;
+  font-weight: bold;
+  font-size: 0.85em;
+  color: #666;
+  margin-bottom: 2px;
+}
+.job-field input[type="text"],
+.job-field select,
+.job-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+}
+.job-field-wide {
+  grid-column: 1 / -1;
+}
+</style>
 <script>
 jQuery(function($) {
   $('select[id^="frequency_"]').on('change', function() {
@@ -206,7 +249,7 @@ jQuery(function($) {
     }
   });
   $('select[id^="frequency_"]').trigger('change');
-  
+
   $('#new_frequency').on('change', function() {
     var customInput = $('input[name="new_frequency_custom"]');
     if ($(this).val() === 'custom') {
