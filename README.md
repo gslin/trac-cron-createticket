@@ -121,7 +121,7 @@ The plugin uses Trac’s built‑in database API, so it works with any database 
 
 ---
 
-**License:** BSD License
-**Author:** Your Name (<your@email.com>)
+**License:** MIT License
+**Author:** Gea-Suan Lin
 
 If you encounter any issues or have feature requests, feel free to open an issue on the project’s GitHub repository. Happy ticketing!
