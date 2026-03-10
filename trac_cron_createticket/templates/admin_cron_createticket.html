@@ -60,7 +60,7 @@ ${_("Cron Create Ticket")}
           </div>
           <div class="job-field">
             <label>Title</label>
-            <input type="text" name="title_${job.index}" value="${job.title}" placeholder="[now] Ticket for [today]"/>
+            <input type="text" name="title_${job.index}" value="${job.title}" placeholder="[%Y-%m-%d %H:%M:%S] Ticket for [%Y-%m-%d]"/>
           </div>
           <div class="job-field">
             <label>Owner</label>
@@ -108,14 +108,16 @@ ${_("Cron Create Ticket")}
     <fieldset>
       <legend>Template Variables</legend>
       <div class="help">
-        <p>You can use the following placeholders in title, description, and priority. All times are in <strong>UTC</strong>.</p>
+        <p>You can use <a href="https://docs.python.org/3/library/datetime.html#strftime-strptime-behavior">Python strftime</a> format codes in brackets for title, description, and priority. All times are in <strong>UTC</strong>.</p>
+        <p>Syntax: <code>[&lt;strftime_format&gt;]</code> or <code>[&lt;strftime_format&gt;+N]</code> / <code>[&lt;strftime_format&gt;-N]</code> for offset in seconds.</p>
         <ul>
-          <li><code>[now]</code> - Current UTC datetime</li>
-          <li><code>[now_unix]</code> - Current Unix timestamp</li>
-          <li><code>[today]</code> - Today's date in UTC (YYYY-MM-DD)</li>
-          <li><code>[tomorrow]</code> - Tomorrow's date in UTC (YYYY-MM-DD)</li>
-          <li><code>[yesterday]</code> - Yesterday's date in UTC (YYYY-MM-DD)</li>
-          <li><code>[offset:N]</code> - Date N seconds from now in UTC (e.g., [offset:86400] for tomorrow)</li>
+          <li><code>[%Y-%m-%d %H:%M:%S]</code> - Current UTC datetime (e.g., 2024-01-15 09:30:00)</li>
+          <li><code>[%Y-%m-%d]</code> - Today's date (e.g., 2024-01-15)</li>
+          <li><code>[%s]</code> - Current Unix timestamp</li>
+          <li><code>[%Y-%m-%d+86400]</code> - Tomorrow's date (offset +86400 seconds)</li>
+          <li><code>[%Y-%m-%d-86400]</code> - Yesterday's date (offset -86400 seconds)</li>
+          <li><code>[%Y-%m-%d+604800]</code> - Date one week from now</li>
+          <li><code>[%A]</code> - Day of week name (e.g., Monday)</li>
         </ul>
       </div>
     </fieldset>
@@ -153,7 +155,7 @@ ${_("Cron Create Ticket")}
       </tr>
       <tr>
         <td><label>Title:</label></td>
-        <td><input type="text" name="new_title" value="" size="50" placeholder="[now] Ticket for [today]"/></td>
+        <td><input type="text" name="new_title" value="" size="50" placeholder="[%Y-%m-%d %H:%M:%S] Ticket for [%Y-%m-%d]"/></td>
       </tr>
       <tr>
         <td><label>Owner:</label></td>

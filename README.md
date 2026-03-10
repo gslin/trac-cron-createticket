@@ -17,14 +17,17 @@ The generated tickets can have the following fields (all support template variab
 
 ### Template Variables
 
-You can use the following placeholders in title, description, and priority fields (all times are in UTC):
+You can use [Python strftime](https://docs.python.org/3/library/datetime.html#strftime-strptime-behavior) format codes in brackets for title, description, and priority fields. All times are in UTC.
 
-- `[now]` – current datetime
-- `[now_unix]` – current Unix timestamp
-- `[today]` – today's date (YYYY‑MM‑DD)
-- `[tomorrow]` – tomorrow's date (YYYY‑MM‑DD)
-- `[yesterday]` – yesterday's date (YYYY‑MM‑DD)
-- `[offset:N]` – date N seconds from now (e.g. `[offset:86400]` for tomorrow)
+Syntax: `[<strftime_format>]` or `[<strftime_format>+N]` / `[<strftime_format>-N]` for offset in seconds.
+
+- `[%Y-%m-%d %H:%M:%S]` – current UTC datetime (e.g. `2024-01-15 09:30:00`)
+- `[%Y-%m-%d]` – today's date (e.g. `2024-01-15`)
+- `[%s]` – current Unix timestamp
+- `[%Y-%m-%d+86400]` – tomorrow's date (offset +86400 seconds)
+- `[%Y-%m-%d-86400]` – yesterday's date (offset -86400 seconds)
+- `[%Y-%m-%d+604800]` – date one week from now
+- `[%A]` – day of week name (e.g. `Monday`)
 
 ## Installation
 

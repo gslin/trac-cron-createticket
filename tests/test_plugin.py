@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from threading import Lock
 from unittest.mock import Mock, MagicMock, patch
 
@@ -75,40 +75,99 @@ class TestCronExpression:
 
 
 class TestTemplateExpansion:
-    def test_expand_now_placeholder(self, plugin):
-        template = 'Ticket created at [now]'
-        result = plugin._expand_template(template)
-        assert 'Ticket created at' in result
-        assert result != template
+    def test_expand_date_format(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Due: [%Y-%m-%d]', base_time=base)
+        assert result == 'Due: 2024-01-15'
 
-    def test_expand_now_unix_placeholder(self, plugin):
-        template = 'Timestamp: [now_unix]'
-        result = plugin._expand_template(template)
-        assert 'Timestamp:' in result
+    def test_expand_datetime_format(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Created: [%Y-%m-%d %H:%M:%S]', base_time=base)
+        assert result == 'Created: 2024-01-15 09:30:00'
 
-    def test_expand_today_placeholder(self, plugin):
-        template = 'Due: [today]'
-        result = plugin._expand_template(template)
-        expected = (datetime.now(timezone.utc)).strftime('%Y-%m-%d')
-        assert expected in result
+    def test_expand_unix_timestamp(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Timestamp: [%s]', base_time=base)
+        expected_ts = str(int(base.timestamp()))
+        assert result == f'Timestamp: {expected_ts}'
 
-    def test_expand_tomorrow_placeholder(self, plugin):
-        template = 'Due: [tomorrow]'
-        result = plugin._expand_template(template)
-        expected = (datetime.now(timezone.utc) + timedelta(days=1)).strftime('%Y-%m-%d')
-        assert expected in result
+    def test_expand_positive_offset(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Tomorrow: [%Y-%m-%d+86400]', base_time=base)
+        assert result == 'Tomorrow: 2024-01-16'
 
-    def test_expand_yesterday_placeholder(self, plugin):
-        template = 'Started: [yesterday]'
-        result = plugin._expand_template(template)
-        expected = (datetime.now(timezone.utc) - timedelta(days=1)).strftime('%Y-%m-%d')
-        assert expected in result
+    def test_expand_negative_offset(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Yesterday: [%Y-%m-%d-86400]', base_time=base)
+        assert result == 'Yesterday: 2024-01-14'
 
-    def test_expand_offset_placeholder(self, plugin):
-        template = 'Schedule: [offset:86400]'
-        result = plugin._expand_template(template)
-        expected = (datetime.now(timezone.utc) + timedelta(seconds=86400)).strftime('%Y-%m-%d')
-        assert expected in result
+    def test_expand_hour_offset(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Next hour: [%H:%M+3600]', base_time=base)
+        assert result == 'Next hour: 10:30'
+
+    def test_expand_multiple_placeholders(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('[%Y-%m-%d] to [%Y-%m-%d+604800]', base_time=base)
+        assert result == '2024-01-15 to 2024-01-22'
+
+    def test_expand_no_placeholders(self, plugin):
+        result = plugin._expand_template('Plain text without templates')
+        assert result == 'Plain text without templates'
+
+    def test_expand_invalid_format_kept(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        # Brackets without % are not treated as templates
+        result = plugin._expand_template('Keep [this] as is', base_time=base)
+        assert result == 'Keep [this] as is'
+
+    def test_expand_day_of_week(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)  # Monday
+        result = plugin._expand_template('Day: [%A]', base_time=base)
+        assert result == 'Day: Monday'
+
+    def test_expand_escaped_bracket(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Use \\[%Y-%m-%d] for dates', base_time=base)
+        assert result == 'Use [%Y-%m-%d] for dates'
+
+    def test_expand_escaped_bracket_with_real_template(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('Literal \\[%Y] and expanded [%Y-%m-%d]', base_time=base)
+        assert result == 'Literal [%Y] and expanded 2024-01-15'
+
+    def test_expand_double_percent_s(self, plugin):
+        """%%s should produce literal %s, not a unix timestamp."""
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('[%%s]', base_time=base)
+        assert result == '%s'
+
+    def test_expand_rejects_unknown_directive(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('[%Y-%m-%d %q]', base_time=base)
+        assert result == '[%Y-%m-%d %q]'
+
+    def test_expand_rejects_excessive_offset(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        result = plugin._expand_template('[%Y-%m-%d+999999999999]', base_time=base)
+        assert result == '[%Y-%m-%d+999999999999]'
+
+    def test_expand_rejects_overly_long_format(self, plugin):
+        base = datetime(2024, 1, 15, 9, 30, 0, tzinfo=timezone.utc)
+        long_fmt = '%Y' + 'x' * 100
+        result = plugin._expand_template(f'[{long_fmt}]', base_time=base)
+        assert result == f'[{long_fmt}]'
+
+    def test_is_safe_strftime_valid(self, plugin):
+        assert plugin._is_safe_strftime('%Y-%m-%d') is True
+        assert plugin._is_safe_strftime('%H:%M:%S') is True
+        assert plugin._is_safe_strftime('%%') is True
+        assert plugin._is_safe_strftime('%s') is True
+
+    def test_is_safe_strftime_invalid(self, plugin):
+        assert plugin._is_safe_strftime('%q') is False
+        assert plugin._is_safe_strftime('%') is False
+        assert plugin._is_safe_strftime('%n') is False
 
 
 class TestTicketCreation:

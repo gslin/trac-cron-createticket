@@ -451,35 +451,69 @@ class CronCreateTicketPlugin(Component):
 
     # -- Template expansion --
 
+    # Known-safe strftime directive characters (after %).
+    _SAFE_STRFTIME_CODES = set('aAwdbBmyYHIpMSfzZjUWcxXGuVs%')
+    _ESCAPED_BRACKET = '\x00ESC_LBRACKET\x00'
+    _ESCAPED_PERCENT = '\x00ESC_PERCENT\x00'
+    _MAX_FMT_LENGTH = 64
+    _MAX_OFFSET_SECONDS = 315360000  # ~10 years
+
+    def _is_safe_strftime(self, fmt):
+        """Return True if fmt only contains known-safe strftime directives."""
+        i = 0
+        while i < len(fmt):
+            if fmt[i] == '%':
+                if i + 1 >= len(fmt):
+                    return False
+                if fmt[i + 1] not in self._SAFE_STRFTIME_CODES:
+                    return False
+                i += 2
+            else:
+                i += 1
+        return True
+
     def _expand_template(self, template, base_time=None):
         if base_time is None:
             base_time = datetime.now(timezone.utc)
 
-        now = base_time
+        # Protect escaped brackets (\[) from template expansion.
+        template = template.replace('\\[', self._ESCAPED_BRACKET)
 
-        placeholders = {
-            'now': now,
-            'now_unix': int(now.timestamp()),
-            'today': now.strftime('%Y-%m-%d'),
-            'tomorrow': (now + timedelta(days=1)).strftime('%Y-%m-%d'),
-            'yesterday': (now - timedelta(days=1)).strftime('%Y-%m-%d'),
-        }
+        # Match [<strftime_format>] or [<strftime_format>+/-N]
+        # The format must contain at least one '%' character.
+        pattern = re.compile(r'\[([^[\]]*%[^[\]]*?)([+-]\d+)?\]')
 
-        offset_pattern = re.compile(r'\[offset:(\d+)\]')
+        def replace_match(match):
+            fmt = match.group(1)
+            offset_str = match.group(2)
 
-        def replace_offset(match):
-            seconds = int(match.group(1))
-            adjusted_time = base_time + timedelta(seconds=seconds)
-            return adjusted_time.strftime('%Y-%m-%d')
+            # Reject overly long or unsafe format strings.
+            if len(fmt) > self._MAX_FMT_LENGTH or not self._is_safe_strftime(fmt):
+                return match.group(0)
 
-        template = offset_pattern.sub(replace_offset, template)
+            t = base_time
+            if offset_str:
+                seconds = int(offset_str)
+                if abs(seconds) > self._MAX_OFFSET_SECONDS:
+                    return match.group(0)
+                t = t + timedelta(seconds=seconds)
 
-        for key, value in placeholders.items():
-            if isinstance(value, datetime):
-                value = value.strftime('%Y-%m-%d %H:%M:%S')
-            template = template.replace(f'[{key}]', str(value))
+            try:
+                # %s in strftime uses local time on Linux; replace it
+                # with the correct UTC-based unix timestamp.
+                # Protect %% first so %%s is not mistakenly replaced.
+                if '%s' in fmt:
+                    fmt = fmt.replace('%%', self._ESCAPED_PERCENT)
+                    fmt = fmt.replace('%s', str(int(t.timestamp())))
+                    fmt = fmt.replace(self._ESCAPED_PERCENT, '%%')
+                return t.strftime(fmt)
+            except (ValueError, TypeError):
+                return match.group(0)
 
-        return template
+        template = pattern.sub(replace_match, template)
+
+        # Restore escaped brackets to literal [.
+        return template.replace(self._ESCAPED_BRACKET, '[')
 
     # -- Ticket creation --
 
