@@ -32,8 +32,11 @@ dev = [
 [tool.ruff]
 line-length = 120
 [tool.ruff.lint]
-select = ["E", "F", "W", "C90"]
+select = ["E", "F", "W", "C90", "Q"]
 ignore = []
+
+[tool.ruff.lint.flake8-quotes]
+inline-quotes = "single"
 
 [tool.pytest.ini_options]
 filterwarnings = [

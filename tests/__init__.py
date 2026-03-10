@@ -6,10 +6,10 @@ import sys
 from unittest.mock import MagicMock
 
 # Mock pkg_resources before any Trac imports
-if "pkg_resources" not in sys.modules:
+if 'pkg_resources' not in sys.modules:
     pkg_resources = MagicMock()
     pkg_resources.DistributionNotFound = Exception
-    pkg_resources.get_distribution = MagicMock(return_value=MagicMock(version="1.6.0"))
+    pkg_resources.get_distribution = MagicMock(return_value=MagicMock(version='1.6.0'))
 
     # Simple version comparison for mocking
     class MockVersion:
@@ -27,4 +27,4 @@ if "pkg_resources" not in sys.modules:
             return str(self.version_string) == str(other)
 
     pkg_resources.parse_version = MockVersion
-    sys.modules["pkg_resources"] = pkg_resources
+    sys.modules['pkg_resources'] = pkg_resources
