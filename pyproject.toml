@@ -1,6 +1,6 @@
 [project]
 name = "trac-cron-createticket"
-version = "1.0.2"
+version = "1.0.3"
 description = "Trac plugin for scheduled ticket creation"
 requires-python = ">=3.8,<3.13"
 license = {text = "MIT"}

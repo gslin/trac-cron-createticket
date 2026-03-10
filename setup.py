@@ -2,7 +2,7 @@ from setuptools import find_packages, setup
 
 setup(
     name='TracCronCreateTicket',
-    version='1.0.2',
+    version='1.0.3',
     description='Trac plugin for scheduled ticket creation',
     author='Your Name',
     author_email='your@email.com',
