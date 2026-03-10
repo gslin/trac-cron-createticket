@@ -10,7 +10,7 @@ from trac.admin import IAdminPanelProvider
 from trac.config import BoolOption, IntOption
 from trac.core import Component, implements
 from trac.env import IEnvironmentSetupParticipant
-from trac.perm import IPermissionPolicy, IPermissionRequestor
+from trac.perm import IPermissionPolicy, IPermissionRequestor, PermissionSystem
 from trac.ticket import Ticket
 from trac.util.html import html
 from trac.web.chrome import INavigationContributor, ITemplateProvider
@@ -657,6 +657,16 @@ class CronCreateTicketPlugin(Component):
 
         data['components'] = self._get_components()
         data['priorities'] = self._get_priorities()
+
+        restrict_owner = self.env.config.getbool('ticket', 'restrict_owner', False)
+        data['restrict_owner'] = restrict_owner
+        if restrict_owner:
+            owners = sorted(
+                PermissionSystem(self.env).get_users_with_permission('TICKET_MODIFY')
+            )
+            data['owners'] = owners
+        else:
+            data['owners'] = []
 
         return 'admin_cron_createticket.html', data
 

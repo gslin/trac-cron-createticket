@@ -64,7 +64,16 @@ ${_("Cron Create Ticket")}
           </div>
           <div class="job-field">
             <label>Owner</label>
+            # if restrict_owner:
+            <select name="owner_${job.index}">
+              <option value="">-- None --</option>
+              # for owner in owners:
+              <option value="${owner}"${{'selected': job.owner == owner, 'empty': 'empty'}|htmlattr}>${owner}</option>
+              # endfor
+            </select>
+            # else:
             <input type="text" name="owner_${job.index}" value="${job.owner}"/>
+            # endif
           </div>
           <div class="job-field">
             <label>Component</label>
@@ -148,7 +157,18 @@ ${_("Cron Create Ticket")}
       </tr>
       <tr>
         <td><label>Owner:</label></td>
-        <td><input type="text" name="new_owner" value="" size="20"/></td>
+        <td>
+          # if restrict_owner:
+          <select name="new_owner">
+            <option value="">-- None --</option>
+            # for owner in owners:
+            <option value="${owner}">${owner}</option>
+            # endfor
+          </select>
+          # else:
+          <input type="text" name="new_owner" value="" size="20"/>
+          # endif
+        </td>
       </tr>
       <tr>
         <td><label>Description:</label></td>
