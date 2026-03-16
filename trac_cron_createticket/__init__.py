@@ -682,7 +682,6 @@ class CronCreateTicketPlugin(Component):
                 job['description'],
                 job['component'],
                 job['priority'],
-                job['reporter'],
             ])
             if has_data:
                 # Extract index number from job_name (e.g. "job1" -> 1)
