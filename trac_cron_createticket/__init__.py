@@ -15,7 +15,7 @@ from trac.ticket import Ticket
 from trac.web.chrome import Chrome, ITemplateProvider
 
 MAX_JOBS = 10
-DB_VERSION = 4
+DB_VERSION = 5
 
 
 class CronCreateTicketPlugin(Component):
@@ -73,7 +73,8 @@ class CronCreateTicketPlugin(Component):
                 "  description TEXT NOT NULL,"
                 "  component VARCHAR(255) NOT NULL DEFAULT '',"
                 "  priority VARCHAR(255) NOT NULL DEFAULT '',"
-                "  status VARCHAR(64) NOT NULL DEFAULT 'new'"
+                "  status VARCHAR(64) NOT NULL DEFAULT 'new',"
+                "  reporter VARCHAR(255) NOT NULL DEFAULT 'trac_cron_createticket'"
                 ")"
             )
 
@@ -169,6 +170,18 @@ class CronCreateTicketPlugin(Component):
             )
             self._db_set_enabled(prefix, enabled)
 
+    def _migrate_v4_to_v5(self):
+        """Add reporter column."""
+        with self.env.db_transaction as db:
+            cursor = db.cursor()
+            try:
+                cursor.execute(
+                    "ALTER TABLE cron_createticket_jobs ADD COLUMN "
+                    "reporter VARCHAR(255) NOT NULL DEFAULT 'trac_cron_createticket'"
+                )
+            except Exception:
+                pass  # Column may already exist
+
     def _upgrade_db(self):
         db_version = self.env.config.getint('trac_cron_createticket', 'db_version', 0)
 
@@ -190,6 +203,10 @@ class CronCreateTicketPlugin(Component):
 
         if db_version < 4:
             self._migrate_v3_to_v4()
+            db_version = 4
+
+        if db_version < 5:
+            self._migrate_v4_to_v5()
 
         self.env.config.set('trac_cron_createticket', 'db_version', str(DB_VERSION))
         self.env.config.save()
@@ -215,7 +232,7 @@ class CronCreateTicketPlugin(Component):
             cursor = db.cursor()
             cursor.execute(
                 'SELECT job_name, last_run, enabled, frequency, title, owner, '
-                'description, component, priority, status '
+                'description, component, priority, status, reporter '
                 'FROM cron_createticket_jobs WHERE job_name=%s',
                 (job_name,),
             )
@@ -233,6 +250,7 @@ class CronCreateTicketPlugin(Component):
                 'component': row[7],
                 'priority': row[8],
                 'status': row[9],
+                'reporter': row[10],
             }
 
     def _db_get_all_jobs(self):
@@ -241,7 +259,7 @@ class CronCreateTicketPlugin(Component):
             cursor = db.cursor()
             cursor.execute(
                 'SELECT job_name, last_run, enabled, frequency, title, owner, '
-                'description, component, priority, status '
+                'description, component, priority, status, reporter '
                 'FROM cron_createticket_jobs ORDER BY job_name'
             )
             jobs = []
@@ -257,6 +275,7 @@ class CronCreateTicketPlugin(Component):
                     'component': row[7],
                     'priority': row[8],
                     'status': row[9],
+                    'reporter': row[10],
                 })
             return jobs
 
@@ -272,7 +291,7 @@ class CronCreateTicketPlugin(Component):
                 cursor.execute(
                     'UPDATE cron_createticket_jobs SET '
                     'frequency=%s, title=%s, owner=%s, description=%s, '
-                    'component=%s, priority=%s, status=%s '
+                    'component=%s, priority=%s, status=%s, reporter=%s '
                     'WHERE job_name=%s',
                     (
                         data.get('frequency', ''),
@@ -282,6 +301,7 @@ class CronCreateTicketPlugin(Component):
                         data.get('component', ''),
                         data.get('priority', ''),
                         data.get('status', 'new'),
+                        data.get('reporter', 'trac_cron_createticket'),
                         job_name,
                     ),
                 )
@@ -289,8 +309,8 @@ class CronCreateTicketPlugin(Component):
                 cursor.execute(
                     'INSERT INTO cron_createticket_jobs '
                     '(job_name, last_run, enabled, frequency, title, owner, '
-                    'description, component, priority, status) '
-                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
+                    'description, component, priority, status, reporter) '
+                    'VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)',
                     (
                         job_name,
                         0,
@@ -302,6 +322,7 @@ class CronCreateTicketPlugin(Component):
                         data.get('component', ''),
                         data.get('priority', ''),
                         data.get('status', 'new'),
+                        data.get('reporter', 'trac_cron_createticket'),
                     ),
                 )
 
@@ -333,8 +354,9 @@ class CronCreateTicketPlugin(Component):
                 cursor.execute(
                     "INSERT INTO cron_createticket_jobs "
                     "(job_name, last_run, enabled, frequency, title, owner, "
-                    "description, component, priority, status) "
-                    "VALUES (%s, %s, 0, '', '', '', '', '', '', 'new')",
+                    "description, component, priority, status, reporter) "
+                    "VALUES (%s, %s, 0, '', '', '', '', '', '', 'new', "
+                    "'trac_cron_createticket')",
                     (job_name, int(last_run)),
                 )
 
@@ -399,8 +421,9 @@ class CronCreateTicketPlugin(Component):
                 cursor.execute(
                     "INSERT INTO cron_createticket_jobs "
                     "(job_name, last_run, enabled, frequency, title, owner, "
-                    "description, component, priority, status) "
-                    "VALUES (%s, 0, %s, '', '', '', '', '', '', 'new')",
+                    "description, component, priority, status, reporter) "
+                    "VALUES (%s, 0, %s, '', '', '', '', '', '', 'new', "
+                    "'trac_cron_createticket')",
                     (job_name, enabled_int),
                 )
 
@@ -426,6 +449,7 @@ class CronCreateTicketPlugin(Component):
                 'component': job['component'],
                 'priority': job['priority'],
                 'status': job['status'],
+                'reporter': job['reporter'],
                 'last_run': job['last_run'],
             })
 
@@ -526,7 +550,7 @@ class CronCreateTicketPlugin(Component):
         try:
             ticket = Ticket(self.env)
             ticket['summary'] = title
-            ticket['reporter'] = 'cron_create_ticket'
+            ticket['reporter'] = job.get('reporter', 'trac_cron_createticket') or 'trac_cron_createticket'
             ticket['owner'] = owner
             ticket['description'] = description
             if component:
@@ -658,6 +682,7 @@ class CronCreateTicketPlugin(Component):
                 job['description'],
                 job['component'],
                 job['priority'],
+                job['reporter'],
             ])
             if has_data:
                 # Extract index number from job_name (e.g. "job1" -> 1)
@@ -671,6 +696,7 @@ class CronCreateTicketPlugin(Component):
                     'description': job['description'],
                     'component': job['component'],
                     'priority': job['priority'],
+                    'reporter': job['reporter'],
                 })
 
         data['jobs'] = jobs
@@ -774,6 +800,7 @@ class CronCreateTicketPlugin(Component):
                 'component': req.args.get(f'component_{i}', ''),
                 'priority': req.args.get(f'priority_{i}', ''),
                 'status': req.args.get(f'status_{i}', 'new') or 'new',
+                'reporter': req.args.get(f'reporter_{i}', 'trac_cron_createticket'),
             })
 
         self._load_jobs()
@@ -788,6 +815,7 @@ class CronCreateTicketPlugin(Component):
         description = req.args.get('new_description', '')
         component = req.args.get('new_component', '')
         priority = req.args.get('new_priority', '')
+        reporter = req.args.get('new_reporter', 'trac_cron_createticket')
         enabled = self._is_checked(req, 'new_enabled')
 
         if not title:
@@ -807,6 +835,7 @@ class CronCreateTicketPlugin(Component):
                     'description': description,
                     'component': component,
                     'priority': priority,
+                    'reporter': reporter,
                     'status': 'new',
                 })
                 self._db_set_enabled(prefix, enabled)
