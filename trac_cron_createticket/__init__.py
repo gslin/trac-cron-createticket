@@ -12,8 +12,7 @@ from trac.core import Component, implements
 from trac.env import IEnvironmentSetupParticipant
 from trac.perm import IPermissionPolicy, IPermissionRequestor, PermissionSystem
 from trac.ticket import Ticket
-from trac.util.html import html
-from trac.web.chrome import Chrome, INavigationContributor, ITemplateProvider
+from trac.web.chrome import Chrome, ITemplateProvider
 
 MAX_JOBS = 10
 DB_VERSION = 4
@@ -22,7 +21,6 @@ DB_VERSION = 4
 class CronCreateTicketPlugin(Component):
     implements(
         IEnvironmentSetupParticipant,
-        INavigationContributor,
         ITemplateProvider,
         IAdminPanelProvider,
         IPermissionRequestor,
@@ -616,18 +614,6 @@ class CronCreateTicketPlugin(Component):
 
     def shutdown(self):
         self._stop_ticker_thread()
-
-    # -- Navigation --
-
-    def get_active_navigation_item(self, req):
-        return 'trac_cron_createticket'
-
-    def get_navigation_items(self, req):
-        yield (
-            'mainnav',
-            'trac_cron_createticket',
-            html.a('Cron Create Ticket', href=self.env.href.admin('trac_cron_createticket')),
-        )
 
     # -- Permissions --
 
