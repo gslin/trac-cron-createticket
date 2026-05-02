@@ -12,6 +12,7 @@ from trac.core import Component, implements
 from trac.env import IEnvironmentSetupParticipant
 from trac.perm import IPermissionPolicy, IPermissionRequestor, PermissionSystem
 from trac.ticket import Ticket
+from trac.web.api import IRequestFilter
 from trac.web.chrome import Chrome, ITemplateProvider
 
 MAX_JOBS = 10
@@ -25,6 +26,7 @@ class CronCreateTicketPlugin(Component):
         IAdminPanelProvider,
         IPermissionRequestor,
         IPermissionPolicy,
+        IRequestFilter,
     )
 
     ticker_enabled = BoolOption(
@@ -573,44 +575,52 @@ class CronCreateTicketPlugin(Component):
     def _run_scheduler(self):
         self.env.log.info('CronCreateTicket scheduler started')
         while not self._stop_ticker:
-            self._load_jobs()
-            current_time = time()
+            try:
+                self._load_jobs()
+                current_time = time()
 
-            with self._lock:
-                jobs_snapshot = list(self._jobs)
+                with self._lock:
+                    jobs_snapshot = list(self._jobs)
 
-            for job in jobs_snapshot:
-                try:
-                    if job['last_run'] == 0:
-                        # First time seeing this job: initialize its last_run
-                        # in DB. If another process already did this,
-                        # _db_init_job returns False and we skip.
-                        init_time = int(current_time)
-                        self._db_init_job(job['name'], init_time)
-                        continue
-
-                    cron = croniter(job['cron'], current_time)
-                    due_run = int(cron.get_prev())
-                    if due_run > job['last_run']:
-                        # Try to atomically claim this job execution.
-                        # Only one process will succeed.
-                        if not self._db_try_claim_job(job['name'], job['last_run'], due_run):
-                            self.env.log.debug(
-                                f"Job {job['name']} already claimed by another process"
-                            )
+                for job in jobs_snapshot:
+                    try:
+                        if job['last_run'] == 0:
+                            # First time seeing this job: initialize its last_run
+                            # in DB. If another process already did this,
+                            # _db_init_job returns False and we skip.
+                            init_time = int(current_time)
+                            self._db_init_job(job['name'], init_time)
                             continue
 
-                        self.env.log.info(f"Creating ticket for job {job['name']}: {job['title']}")
-                        if self._create_ticket(job):
-                            self.env.log.info(f"Ticket created for job {job['name']}")
-                        else:
-                            # Ticket creation failed; revert last_run so it
-                            # can be retried on the next cycle.
-                            self._db_try_claim_job(job['name'], due_run, job['last_run'])
-                except Exception as e:
-                    self.env.log.error(f"Error processing job {job['name']}: {e}")
+                        cron = croniter(job['cron'], current_time)
+                        due_run = int(cron.get_prev())
+                        if due_run > job['last_run']:
+                            # Try to atomically claim this job execution.
+                            # Only one process will succeed.
+                            if not self._db_try_claim_job(job['name'], job['last_run'], due_run):
+                                self.env.log.debug(
+                                    f"Job {job['name']} already claimed by another process"
+                                )
+                                continue
 
-            sleep(self._get_ticker_interval())
+                            self.env.log.info(f"Creating ticket for job {job['name']}: {job['title']}")
+                            if self._create_ticket(job):
+                                self.env.log.info(f"Ticket created for job {job['name']}")
+                            else:
+                                # Ticket creation failed; revert last_run so it
+                                # can be retried on the next cycle.
+                                self._db_try_claim_job(job['name'], due_run, job['last_run'])
+                    except Exception as e:
+                        self.env.log.error(f"Error processing job {job['name']}: {e}")
+            except Exception:
+                # Outer guard: never let the scheduler thread die silently.
+                # Log full traceback so we can diagnose the cause later.
+                self.env.log.exception('CronCreateTicket scheduler iteration failed')
+
+            try:
+                sleep(self._get_ticker_interval())
+            except Exception:
+                sleep(60)
         self.env.log.info('CronCreateTicket scheduler stopped')
 
     def _start_ticker(self):
@@ -638,6 +648,18 @@ class CronCreateTicketPlugin(Component):
 
     def shutdown(self):
         self._stop_ticker_thread()
+
+    # -- IRequestFilter --
+
+    def pre_process_request(self, req, handler):
+        # Watchdog: ensure the scheduler thread is alive on every request.
+        # In FastCGI deployments the worker process may live for weeks; if
+        # the thread silently dies, only this hook can revive it.
+        self._ensure_ticker_state()
+        return handler
+
+    def post_process_request(self, req, template, data, content_type):
+        return template, data, content_type
 
     # -- Permissions --
 
