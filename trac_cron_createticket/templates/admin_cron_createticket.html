@@ -54,9 +54,7 @@ ${_("Cron Create Ticket")}
               # set is_custom = job.frequency and job.frequency not in presets|map(attribute='0')
               <option value="custom"${{'selected': is_custom, 'empty': 'empty'}|htmlattr}>Custom (cron)</option>
             </select>
-            # if is_custom:
-            <input type="text" name="frequency_custom_${job.index}" value="${job.frequency}" size="15" placeholder="* * * * *"/>
-            # endif
+            <input type="text" name="frequency_custom_${job.index}" value="${job.frequency if is_custom else ''}" size="15" placeholder="* * * * *" style="display: none;"/>
           </div>
           <div class="job-field">
             <label>Title</label>
